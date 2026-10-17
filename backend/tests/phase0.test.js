@@ -14,6 +14,7 @@ const { errorHandler, mapKnownError, buildErrorBody } = require("../src/middlewa
 const { idParams, paginationQuery } = require("../src/validators/common");
 const { toOffset, paginationMeta } = require("../src/utils/pagination");
 const { generateBookingReference } = require("../src/utils/reference");
+const env = require("../src/config/env");
 
 // Start any express app on a random port and return a fetch-like helper.
 async function serve(expressApp) {
@@ -133,6 +134,8 @@ test("asyncHandler forwards rejections; AppError status and code are kept", asyn
 });
 
 test("500 messages are hidden in production, shown in development", () => {
+  assert.equal(env.IS_PRODUCTION, env.NODE_ENV === "production");
+
   const err = new Error("secret internals");
   const prod = buildErrorBody(err, { requestId: "r1", isProduction: true });
   const dev = buildErrorBody(err, { requestId: "r1", isProduction: false });

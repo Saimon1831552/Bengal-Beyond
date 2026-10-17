@@ -1,8 +1,8 @@
 const crypto = require("crypto");
-const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const AppError = require("../../utils/appError");
 const env = require("../../config/env");
+const { hashPassword, verifyPassword, isLegacyPasswordHash } = require("../../utils/password");
 const repo = require("./auth.repository");
 
 const REFRESH_TTL_DAYS = 30;
@@ -52,7 +52,7 @@ async function issueSession(user, req) {
 async function register(input, req) {
   const existing = await repo.findUserByEmail(input.email);
   if (existing) throw AppError.conflict("An account with this email already exists.", undefined, "EMAIL_IN_USE");
-  const passwordHash = await bcrypt.hash(input.password, 12);
+  const passwordHash = await hashPassword(input.password);
   const id = await repo.createCustomer({ ...input, passwordHash });
   const user = await repo.findPublicUserById(id);
   return issueSession(user, req);
@@ -60,12 +60,16 @@ async function register(input, req) {
 
 async function login({ email, password }, req) {
   const user = await repo.findUserByEmail(email);
-  // Same public error for unknown email and incorrect password.
-  if (!user || !user.password_hash || !(await bcrypt.compare(password, user.password_hash))) {
+  const passwordMatches = await verifyPassword(user?.password_hash, password);
+
+  if (!user || !passwordMatches) {
     throw AppError.unauthorized("Email or password is incorrect.", "INVALID_CREDENTIALS");
   }
   if (user.account_status !== "active") {
     throw AppError.forbidden("This account is not active.", "ACCOUNT_NOT_ACTIVE");
+  }
+  if (isLegacyPasswordHash(user.password_hash)) {
+    await repo.updatePasswordHash(user.id, await hashPassword(password));
   }
   await repo.touchLastLogin(user.id);
   return issueSession(user, req);

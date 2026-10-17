@@ -37,7 +37,6 @@ async function updateTour(id, data, actorId) {
   const current = await repository.findById(id);
   if (!current) throw AppError.notFound("Tour not found.", "TOUR_NOT_FOUND");
   const normalized = { ...data };
-  if (data.title && data.slug === undefined) normalized.slug = slugify(data.title);
   if (normalized.slug) await assertSlugAvailable(normalized.slug, id);
   try {
     const updated = await repository.update(id, normalized, actorId);

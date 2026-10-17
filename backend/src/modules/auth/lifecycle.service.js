@@ -1,8 +1,10 @@
 const crypto = require("crypto");
-const bcrypt = require("bcryptjs");
 const AppError = require("../../utils/appError");
+const env = require("../../config/env");
+const { hashPassword } = require("../../utils/password");
 const repo = require("./lifecycle.repository");
 const mailer = require("../../services/mailer");
+const logger = require("../../utils/logger");
 
 const TOKEN_TTL_MINUTES = 30;
 const hash = (raw) => crypto.createHash("sha256").update(raw).digest("hex");
@@ -13,14 +15,19 @@ const publicMessage = "If the account is eligible, an email with further instruc
 async function issueToken(user, type, subject, urlPath) {
   const raw = createRawToken();
   await repo.createActionToken({ userId: user.id, type, tokenHash: hash(raw), expiresAt: expiry() });
-  const base = process.env.FRONTEND_URL?.split(",")[0]?.trim();
+  const base = env.FRONTEND_URL.split(",")[0].trim();
   if (!base) throw new Error("FRONTEND_URL must be configured for account action links.");
   const link = new URL(urlPath, base);
   link.searchParams.set("token", raw);
-  await mailer.sendActionEmail({
+  void mailer.sendActionEmail({
     to: user.email,
     subject,
     text: `Use this link within ${TOKEN_TTL_MINUTES} minutes. If you did not request this, ignore this email.\n\n${link.toString()}`,
+  }).catch((error) => {
+    logger.error("Account action email delivery failed", {
+      eventType: type,
+      error: error.message,
+    });
   });
 }
 
@@ -50,7 +57,7 @@ async function requestPasswordReset(email) {
 async function resetPassword(rawToken, password) {
   const userId = await repo.consumeActionToken({ tokenHash: hash(rawToken), type: "password_reset" });
   if (!userId) throw AppError.badRequest("Password reset link is invalid or expired.", undefined, "INVALID_ACTION_TOKEN");
-  const passwordHash = await bcrypt.hash(password, 12);
+  const passwordHash = await hashPassword(password);
   await repo.updatePasswordAndRevokeSessions(userId, passwordHash);
   return { passwordReset: true, sessionsRevoked: true };
 }

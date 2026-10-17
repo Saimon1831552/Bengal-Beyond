@@ -54,7 +54,15 @@ async function rotateRefreshToken({ oldHash, newHash, expiresAt, userAgent, ipAd
          FROM refresh_tokens WHERE token_hash = ? FOR UPDATE`,
       [oldHash],
     );
-    if (!stored || stored.revoked_at || new Date(stored.expires_at) <= new Date()) return null;
+    if (!stored) return null;
+    if (new Date(stored.expires_at) <= new Date()) return null;
+    if (stored.revoked_at) {
+      await conn.execute(
+        "UPDATE refresh_tokens SET revoked_at = UTC_TIMESTAMP() WHERE user_id = ? AND revoked_at IS NULL",
+        [stored.user_id],
+      );
+      return null;
+    }
     const [updated] = await conn.execute(
       "UPDATE refresh_tokens SET revoked_at = UTC_TIMESTAMP() WHERE id = ? AND revoked_at IS NULL",
       [stored.id],
@@ -77,6 +85,10 @@ async function revokeRefreshToken(tokenHash) {
   );
 }
 
+async function updatePasswordHash(userId, passwordHash) {
+  await pool.execute("UPDATE users SET password_hash = ? WHERE id = ?", [passwordHash, userId]);
+}
+
 async function touchLastLogin(userId) {
   await pool.execute("UPDATE users SET last_login_at = UTC_TIMESTAMP() WHERE id = ?", [userId]);
 }
@@ -88,5 +100,6 @@ module.exports = {
   saveRefreshToken,
   rotateRefreshToken,
   revokeRefreshToken,
+  updatePasswordHash,
   touchLastLogin,
 };
