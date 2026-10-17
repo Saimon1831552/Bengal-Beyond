@@ -1,5 +1,5 @@
 const { ZodError } = require("zod");
-const AppError = require("../utils/AppError");
+const AppError = require("../utils/appError");
 
 function formatIssues(error) {
   return error.issues.map((issue) => ({
