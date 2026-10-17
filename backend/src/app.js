@@ -6,6 +6,7 @@ const env = require("./config/env");
 const requestId = require("./middleware/requestId");
 const notFound = require("./middleware/notFound");
 const { errorHandler } = require("./middleware/errorHandler");
+const { maintenanceMode } = require("./modules/settings/maintenance-mode");
 const routes = require("./routes");
 
 const app = express();
@@ -24,6 +25,7 @@ app.use(
 );
 app.use(express.json({ limit: "1mb" }));
 
+app.use("/api", maintenanceMode);
 app.use("/api", routes);
 
 app.use(notFound);
