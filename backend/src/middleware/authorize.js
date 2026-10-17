@@ -1,6 +1,7 @@
 const { pool } = require("../config/db");
 const AppError = require("../utils/appError");
 const asyncHandler = require("../utils/asynchandler");
+const { recordSecurityEvent } = require("../modules/audit/audit-logger");
 
 /**
  * Usage: router.get("/admin", authenticate, authorize("dashboard.read"), handler)
@@ -34,6 +35,12 @@ function authorize(...requiredPermissions) {
     const granted = new Set(rows.map((row) => row.permission_key));
     const missing = requiredPermissions.filter((permission) => !granted.has(permission));
     if (missing.length) {
+      await recordSecurityEvent({
+        action: "auth.permission.denied",
+        actorUserId: req.auth.userId,
+        req,
+        details: { outcome: "denied", permissions: missing, method: req.method, path: req.path },
+      });
       throw AppError.forbidden("You do not have permission to perform this action.", "INSUFFICIENT_PERMISSION");
     }
 

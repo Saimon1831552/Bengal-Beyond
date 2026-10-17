@@ -4,6 +4,7 @@ const AppError = require("../../utils/appError");
 const env = require("../../config/env");
 const { hashPassword, verifyPassword, isLegacyPasswordHash } = require("../../utils/password");
 const repo = require("./auth.repository");
+const { recordSecurityEvent } = require("../audit/audit-logger");
 
 const REFRESH_TTL_DAYS = 30;
 const ACCESS_TTL = "15m";
@@ -55,7 +56,15 @@ async function register(input, req) {
   const passwordHash = await hashPassword(input.password);
   const id = await repo.createCustomer({ ...input, passwordHash });
   const user = await repo.findPublicUserById(id);
-  return issueSession(user, req);
+  const session = await issueSession(user, req);
+  await recordSecurityEvent({
+    action: "auth.register.success",
+    actorUserId: user.id,
+    entityId: user.id,
+    req,
+    details: { outcome: "success" },
+  });
+  return session;
 }
 
 async function login({ email, password }, req) {
@@ -63,42 +72,93 @@ async function login({ email, password }, req) {
   const passwordMatches = await verifyPassword(user?.password_hash, password);
 
   if (!user || !passwordMatches) {
+    await recordSecurityEvent({
+      action: "auth.login.failed",
+      req,
+      details: { outcome: "failure", reason: "invalid_credentials" },
+    });
     throw AppError.unauthorized("Email or password is incorrect.", "INVALID_CREDENTIALS");
   }
   if (user.account_status !== "active") {
+    await recordSecurityEvent({
+      action: "auth.login.denied",
+      entityId: user.id,
+      req,
+      details: { outcome: "denied", reason: "inactive_account" },
+    });
     throw AppError.forbidden("This account is not active.", "ACCOUNT_NOT_ACTIVE");
   }
   if (isLegacyPasswordHash(user.password_hash)) {
     await repo.updatePasswordHash(user.id, await hashPassword(password));
   }
   await repo.touchLastLogin(user.id);
-  return issueSession(user, req);
+  const session = await issueSession(user, req);
+  await recordSecurityEvent({
+    action: "auth.login.success",
+    actorUserId: user.id,
+    entityId: user.id,
+    req,
+    details: { outcome: "success" },
+  });
+  return session;
 }
 
 async function refresh(rawToken, req) {
   if (!rawToken || typeof rawToken !== "string" || rawToken.length > 200) {
+    await recordSecurityEvent({
+      action: "auth.refresh.failed",
+      req,
+      details: { outcome: "failure", reason: "invalid_token_format" },
+    });
     throw AppError.unauthorized("Refresh token is missing or invalid.", "INVALID_REFRESH_TOKEN");
   }
   const replacement = newRefreshToken();
-  const userId = await repo.rotateRefreshToken({
+  const rotation = await repo.rotateRefreshToken({
     oldHash: hashToken(rawToken),
     newHash: hashToken(replacement),
     expiresAt: refreshExpiry(),
     userAgent: req.get("user-agent"),
     ipAddress: req.ip,
   });
-  if (!userId) throw AppError.unauthorized("Refresh token is expired or invalid.", "INVALID_REFRESH_TOKEN");
+  const userId = rotation.userId;
+  if (!userId) {
+    await recordSecurityEvent({
+      action: rotation.reason === "token_reuse" ? "auth.refresh.reuse_detected" : "auth.refresh.failed",
+      entityId: rotation.affectedUserId || null,
+      req,
+      details: { outcome: "failure", reason: rotation.reason },
+    });
+    throw AppError.unauthorized("Refresh token is expired or invalid.", "INVALID_REFRESH_TOKEN");
+  }
   const user = await repo.findPublicUserById(userId);
   if (!user || user.account_status !== "active") {
     await repo.revokeRefreshToken(hashToken(replacement));
+    await recordSecurityEvent({
+      action: "auth.refresh.denied",
+      entityId: userId,
+      req,
+      details: { outcome: "denied", reason: "inactive_account" },
+    });
     throw AppError.unauthorized("Session is no longer valid.", "INVALID_SESSION");
   }
+  await recordSecurityEvent({
+    action: "auth.refresh.success",
+    actorUserId: userId,
+    entityId: userId,
+    req,
+    details: { outcome: "success" },
+  });
   return { accessToken: createAccessToken(user), refreshToken: replacement, user: sessionUser(user) };
 }
 
-async function logout(rawToken) {
+async function logout(rawToken, req) {
   if (rawToken && typeof rawToken === "string" && rawToken.length <= 200) {
     await repo.revokeRefreshToken(hashToken(rawToken));
+    await recordSecurityEvent({
+      action: "auth.logout",
+      req,
+      details: { outcome: "requested" },
+    });
   }
 }
 

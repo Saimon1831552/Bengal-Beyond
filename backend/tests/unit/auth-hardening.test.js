@@ -32,9 +32,15 @@ test("Express trusts only the configured number of proxy hops", () => {
 });
 
 test("unknown login performs a dummy password verification", async (t) => {
+  const { pool } = require("../../src/config/db");
   const original = authRepository.findUserByEmail;
-  t.after(() => { authRepository.findUserByEmail = original; });
+  const originalExecute = pool.execute;
+  t.after(() => {
+    authRepository.findUserByEmail = original;
+    pool.execute = originalExecute;
+  });
   authRepository.findUserByEmail = async () => null;
+  pool.execute = async () => [{ affectedRows: 1 }];
 
   await assert.rejects(
     authService.login({ email: "unknown@example.com", password: "some-valid-password" }, {}),
@@ -42,14 +48,43 @@ test("unknown login performs a dummy password verification", async (t) => {
   );
 });
 
+test("refresh-token reuse is recorded as a security event and remains unauthorized", async (t) => {
+  const { pool } = require("../../src/config/db");
+  const originalExecute = pool.execute;
+  const originalRotate = authRepository.rotateRefreshToken;
+  let auditParams;
+  t.after(() => {
+    pool.execute = originalExecute;
+    authRepository.rotateRefreshToken = originalRotate;
+  });
+  pool.execute = async (_sql, params) => { auditParams = params; return [{ affectedRows: 1 }]; };
+  authRepository.rotateRefreshToken = async () => ({
+    userId: null,
+    reason: "token_reuse",
+    affectedUserId: 73,
+  });
+
+  await assert.rejects(
+    authService.refresh("revoked-refresh-token", { get: () => "test-agent", ip: "127.0.0.1" }),
+    (error) => error.code === "INVALID_REFRESH_TOKEN",
+  );
+  assert.equal(auditParams[1], "auth.refresh.reuse_detected");
+  assert.equal(auditParams[2], 73);
+});
+
 test("successful legacy bcrypt login upgrades its password hash", async (t) => {
+  const { pool } = require("../../src/config/db");
+  const originalExecute = pool.execute;
   const originals = {
     findUserByEmail: authRepository.findUserByEmail,
     updatePasswordHash: authRepository.updatePasswordHash,
     touchLastLogin: authRepository.touchLastLogin,
     saveRefreshToken: authRepository.saveRefreshToken,
   };
-  t.after(() => Object.assign(authRepository, originals));
+  t.after(() => {
+    Object.assign(authRepository, originals);
+    pool.execute = originalExecute;
+  });
 
   const password = "legacy-password-that-is-long-enough";
   const user = {
@@ -67,6 +102,7 @@ test("successful legacy bcrypt login upgrades its password hash", async (t) => {
   authRepository.updatePasswordHash = async (_userId, passwordHash) => { upgradedHash = passwordHash; };
   authRepository.touchLastLogin = async () => {};
   authRepository.saveRefreshToken = async () => {};
+  pool.execute = async () => [{ affectedRows: 1 }];
 
   const session = await authService.login({ email: user.email, password }, {
     get: () => "test-agent",

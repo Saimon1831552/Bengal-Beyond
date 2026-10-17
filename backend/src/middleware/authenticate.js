@@ -3,6 +3,7 @@ const { pool } = require("../config/db");
 const env = require("../config/env");
 const AppError = require("../utils/appError");
 const asyncHandler = require("../utils/asynchandler");
+const { recordSecurityEvent } = require("../modules/audit/audit-logger");
 
 const ISSUER = "bengal-beyond-api";
 const AUDIENCE = "bengal-beyond-client";
@@ -15,6 +16,11 @@ module.exports = asyncHandler(async function authenticate(req, res, next) {
   const header = req.get("authorization") || "";
   const match = /^Bearer\s+(.+)$/i.exec(header);
   if (!match) {
+    await recordSecurityEvent({
+      action: "auth.access.denied",
+      req,
+      details: { outcome: "denied", reason: "missing_access_token", method: req.method, path: req.path },
+    });
     throw AppError.unauthorized("A valid access token is required.", "ACCESS_TOKEN_REQUIRED");
   }
 
@@ -26,6 +32,11 @@ module.exports = asyncHandler(async function authenticate(req, res, next) {
       audience: AUDIENCE,
     });
   } catch {
+    await recordSecurityEvent({
+      action: "auth.access.denied",
+      req,
+      details: { outcome: "denied", reason: "invalid_access_token", method: req.method, path: req.path },
+    });
     throw AppError.unauthorized("Access token is invalid or expired.", "INVALID_ACCESS_TOKEN");
   }
 

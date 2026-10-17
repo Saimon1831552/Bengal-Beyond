@@ -54,26 +54,26 @@ async function rotateRefreshToken({ oldHash, newHash, expiresAt, userAgent, ipAd
          FROM refresh_tokens WHERE token_hash = ? FOR UPDATE`,
       [oldHash],
     );
-    if (!stored) return null;
-    if (new Date(stored.expires_at) <= new Date()) return null;
+    if (!stored) return { userId: null, reason: "unknown_token" };
+    if (new Date(stored.expires_at) <= new Date()) return { userId: null, reason: "expired_token" };
     if (stored.revoked_at) {
       await conn.execute(
         "UPDATE refresh_tokens SET revoked_at = UTC_TIMESTAMP() WHERE user_id = ? AND revoked_at IS NULL",
         [stored.user_id],
       );
-      return null;
+      return { userId: null, reason: "token_reuse", affectedUserId: stored.user_id };
     }
     const [updated] = await conn.execute(
       "UPDATE refresh_tokens SET revoked_at = UTC_TIMESTAMP() WHERE id = ? AND revoked_at IS NULL",
       [stored.id],
     );
-    if (updated.affectedRows !== 1) return null;
+    if (updated.affectedRows !== 1) return { userId: null, reason: "token_reuse", affectedUserId: stored.user_id };
     await conn.execute(
       `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, user_agent, ip_address)
        VALUES (?, ?, ?, ?, INET6_ATON(?))`,
       [stored.user_id, newHash, expiresAt, userAgent || null, ipAddress || null],
     );
-    return stored.user_id;
+    return { userId: stored.user_id, reason: null };
   });
 }
 

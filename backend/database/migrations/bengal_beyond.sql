@@ -433,7 +433,8 @@ INSERT INTO `permissions` (`id`, `permission_key`, `description`) VALUES
 (17, 'notifications.read', 'Read admin notifications'),
 (18, 'settings.manage', 'Manage platform settings'),
 (19, 'audit.read', 'Read audit logs'),
-(20, 'staff.assign', 'Assign staff to records');
+(20, 'staff.assign', 'Assign staff to records'),
+(21, 'roles.manage', 'Manage staff roles and permission grants');
 
 -- --------------------------------------------------------
 
@@ -534,6 +535,7 @@ INSERT INTO `role_permissions` (`role_id`, `permission_id`) VALUES
 (1, 18),
 (1, 19),
 (1, 20),
+(1, 21),
 (3, 1),
 (3, 2),
 (3, 3),
@@ -837,7 +839,8 @@ ALTER TABLE `admin_settings`
 ALTER TABLE `audit_logs`
   ADD PRIMARY KEY (`id`),
   ADD KEY `idx_audit_actor_created` (`actor_user_id`,`created_at`),
-  ADD KEY `idx_audit_entity_created` (`entity_type`,`entity_id`,`created_at`);
+  ADD KEY `idx_audit_entity_created` (`entity_type`,`entity_id`,`created_at`),
+  ADD KEY `idx_audit_action_created` (`action`,`created_at`);
 
 --
 -- Indexes for table `blog_posts`

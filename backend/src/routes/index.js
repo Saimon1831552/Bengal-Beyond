@@ -15,6 +15,8 @@ router.use("/health", require("./Health.routes"));
  router.use("/admin/dashboard", require("../modules/dashboard/dashboard.routes"));
  router.use("/admin", require("../modules/admin-activity/admin-activity.routes"));
  router.use("/admin/settings", require("../modules/settings/admin-settings.routes"));
+ router.use("/admin/audit-logs", require("../modules/audit/admin-audit.routes"));
+ router.use("/admin/roles", require("../modules/rbac/admin-rbac.routes"));
  
 
 module.exports = router;

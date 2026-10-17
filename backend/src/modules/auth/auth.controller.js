@@ -46,7 +46,7 @@ const refresh = asyncHandler(async (req, res) => {
   return sendSuccess(res, { accessToken: session.accessToken, user: session.user });
 });
 const logout = asyncHandler(async (req, res) => {
-  await service.logout(readCookie(req, COOKIE_NAME));
+  await service.logout(readCookie(req, COOKIE_NAME), req);
   clearRefreshCookie(res);
   return sendSuccess(res, { loggedOut: true });
 });
