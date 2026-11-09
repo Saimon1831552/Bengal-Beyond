@@ -1,0 +1,39 @@
+PHASE 4.6 — INSTALLATION
+
+1. Copy src/modules/refunds into your backend src/modules/refunds folder.
+2. Add these route mounts to src/routes/index.js (merge into your existing router):
+
+router.use('/admin/refunds', require('../modules/refunds/admin-refund.routes'));
+router.use('/customer/refunds', require('../modules/refunds/customer-refund.routes'));
+
+3. Protect /admin/refunds with your existing staff authentication middleware AND the refunds.manage permission. Do not expose admin routes to ordinary customer authentication. Protect /customer/refunds with customer authentication so req.user.id is set.
+4. No migration is needed for the supplied bengalbeyond.sql: it already contains refunds, its status enum, indexes, and foreign keys. Do not run an additional CREATE TABLE migration.
+5. Ensure src/config/db.js exports both pool and withTransaction (the supplied db.js does).
+
+ADMIN ENDPOINTS
+GET    /api/admin/refunds?page=1&limit=20&status=requested
+POST   /api/admin/refunds/payments/:paymentId
+       JSON: { "amount": "125.00", "reason": "Tour cancelled" }
+PATCH  /api/admin/refunds/:refundId
+       JSON: { "status": "pending", "provider_refund_id": "optional-gateway-refund-id" }
+       Allowed statuses: pending, succeeded, failed, cancelled
+
+CUSTOMER ENDPOINT
+GET /api/customer/refunds?page=1&limit=20
+Only refunds attached to the authenticated customer's bookings are returned.
+
+PARTIAL AND FULL REFUNDS
+- Partial refunds: amount less than the remaining refundable balance.
+- Full refunds: amount equal to the remaining refundable balance.
+- The service reserves amounts in requested/pending/succeeded states, preventing concurrent over-refunding.
+- Booking payment_status is recalculated from succeeded refunds: paid, partially_refunded, or refunded.
+- Failed/cancelled refund records release their reserved amount.
+
+SSLCommerz OPERATIONS / IMPORTANT LIMITATION
+This phase records and tracks refund requests. It does NOT call an SSLCommerz refund API automatically. An authorized operator must perform the refund through the SSLCommerz merchant panel and then update the local refund status. Only set status=succeeded after the gateway confirms completion. Store the gateway refund reference in provider_refund_id. Never mark a refund succeeded merely because it was submitted.
+
+SECURITY
+- Enforce refunds.manage in the application middleware on all admin endpoints.
+- Restrict status transitions in this service; terminal states cannot be edited.
+- Do not accept booking_id, currency, payment status, requester ID, or processed_by from the browser; these are derived server-side.
+- Use HTTPS and keep staff credentials private.

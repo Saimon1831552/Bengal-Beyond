@@ -1,0 +1,36 @@
+PHASE 4.8 INSTALLATION
+
+A. DATABASE
+Run migrations/0048_payment_webhook_events.sql once.
+
+B. COPY FILES
+Copy src/modules/payment-webhooks/ to backend/src/modules/payment-webhooks/
+Copy src/workers/payment-webhook-retry.worker.js to backend/src/workers/
+
+C. ROUTE MOUNTS — src/routes/index.js
+Add public ingress:
+  router.use('/webhooks', require('../modules/payment-webhooks/webhook.routes'));
+
+Add admin routes behind your actual staff auth + payments.manage middleware:
+  router.use('/admin/payment-webhooks', staffAuth, requirePermission('payments.manage'),
+    require('../modules/payment-webhooks/webhook-admin.routes'));
+
+The middleware names above are placeholders. Use the real functions already present in your backend.
+
+D. AVOID DUPLICATE IPN HANDLERS
+Phase 4.5 routes expose /sslcommerz/ipn. Disable that old IPN route or remove its route mount after replacing the IPN URL. Do not leave both handlers active. Preserve the 4.5 customer checkout/payment routes and success/fail/cancel redirects as needed.
+
+E. START RETRY WORKER — server.js
+After app/database startup:
+  const { startPaymentWebhookRetryWorker } = require('./workers/payment-webhook-retry.worker');
+  startPaymentWebhookRetryWorker({ intervalMs: 30000 });
+
+F. SSLCommerz MERCHANT PANEL
+Set IPN URL:
+  https://YOUR_API_HOST/api/webhooks/sslcommerz/ipn
+
+G. TEST SANDBOX
+Test a valid IPN, duplicate same val_id, invalid val_id, wrong amount, wrong currency, unmatched tran_id, and temporary SSLCommerz validation API failure. Confirm failed events show in the admin event list and are retryable.
+
+SECURITY
+The public IPN route must remain unauthenticated for gateway delivery, but it must validate server-to-server using SSLCommerz credentials. Do not trust IPN status/amount fields alone. Do not expose raw payloads or credentials in customer API responses.

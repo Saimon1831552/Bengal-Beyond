@@ -1,0 +1,46 @@
+PHASE 4.7 — INSTALLATION
+
+1. BACK UP your database.
+2. Run migrations/0047_sslcommerz_refund_gateway_fields.sql once.
+3. Copy these files into backend/src/modules/refunds/:
+   - sslcommerz-refund.service.js
+   - sslcommerz-refund.controller.js
+   - sslcommerz-refund.routes.js
+
+4. Add this route mount to src/routes/index.js:
+   router.use('/admin/refunds', require('../modules/refunds/sslcommerz-refund.routes'));
+
+   This composes with Phase 4.6's /admin/refunds routes. Ensure this mount is behind
+   your existing staff-authentication middleware and refunds.manage permission.
+   Do not mount it under customer routes.
+
+5. Ensure src/config/env.js exports these values (adapt names to your current env style):
+   SSLCOMMERZ_STORE_ID: process.env.SSLCOMMERZ_STORE_ID,
+   SSLCOMMERZ_STORE_PASSWORD: process.env.SSLCOMMERZ_STORE_PASSWORD,
+   SSLCOMMERZ_SANDBOX: process.env.SSLCOMMERZ_SANDBOX !== 'false',
+
+   If your env module uses another property naming convention, update the three
+   corresponding references in sslcommerz-refund.service.js. Never hardcode credentials.
+
+6. Add to .env:
+   SSLCOMMERZ_STORE_ID=your_store_id
+   SSLCOMMERZ_STORE_PASSWORD=your_store_password
+   SSLCOMMERZ_SANDBOX=true
+
+7. Ensure Phase 4.5 stores the full validation response under payments.raw_event.validation.
+   The refund API needs bank_tran_id from the verified original payment. If the stored
+   response does not contain bank_tran_id, reconcile the original transaction first.
+
+ADMIN API
+POST /api/admin/refunds/:refundId/sslcommerz/submit
+POST /api/admin/refunds/:refundId/sslcommerz/reconcile
+
+Both require staff authentication plus refunds.manage.
+
+IMPORTANT
+- Sandbox test first. Live merchant API calls may require SSLCommerz to register your
+  server's public IP.
+- A successful initiation response means "request accepted", not "money refunded".
+  Run reconcile until SSLCommerz reports "refunded".
+- Never resubmit a pending refund because of a timeout. Its outcome is ambiguous.
+- Do not expose gateway credentials or raw response payloads to customers.

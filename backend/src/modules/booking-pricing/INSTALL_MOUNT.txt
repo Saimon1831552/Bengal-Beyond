@@ -1,0 +1,27 @@
+PHASE 5.9 QUICK INSTALL
+
+1. Confirm Phase 5.8 is installed and execute:
+   migrations/0058_coupons_discount_management.sql
+
+2. Copy:
+   src/modules/booking-pricing/
+   into:
+   E:\Bangle_beyond\backend\src\modules\booking-pricing\
+
+3. Edit src/routes/index.js and mount behind your real customer-auth middleware:
+
+   router.use(
+     "/bookings",
+     YOUR_EXISTING_CUSTOMER_AUTH_MIDDLEWARE,
+     require("../modules/booking-pricing/pricing.routes")
+   );
+
+4. Replace the placeholder with your actual login/JWT middleware. The uploaded starter routes do not define a customer auth middleware. It must populate req.user.id.
+
+5. Wire markCouponRedeemed(conn, bookingId) into the verified payment-success transaction in Phase 4.8.
+
+6. Wire releaseCoupon(conn, bookingId) into terminal cancellation/failure/expiry transactions. Do not release for a retryable payment failure.
+
+7. Ensure payment initiation reads bookings.total_amount after coupon application and stores that amount in payments.amount.
+
+8. Restart backend and test with an unpaid booking owned by a logged-in customer.

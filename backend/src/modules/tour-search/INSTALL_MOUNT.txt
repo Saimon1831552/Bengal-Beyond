@@ -1,0 +1,15 @@
+PHASE 5.4 QUICK INSTALL
+
+1) Confirm Phase 5.2 and Phase 5.3 migrations are already applied.
+2) Copy src/modules/tour-search into backend/src/modules/.
+3) Open src/routes/index.js.
+4) Add:
+   router.use("/tours", require("../modules/tour-search/tour-search.routes"));
+5) Restart backend.
+
+Test:
+GET /api/tours/search
+GET /api/tours/search?q=wildlife
+GET /api/tours/search?destinationId=2&availableOnly=true
+GET /api/tours/search?minPrice=50&maxPrice=200&sort=price_asc
+GET /api/tours/search?departureFrom=2026-11-01&departureTo=2026-11-30

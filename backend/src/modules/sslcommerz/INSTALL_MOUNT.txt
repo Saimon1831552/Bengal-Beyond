@@ -1,0 +1,16 @@
+Add to src/routes/index.js:
+
+router.use('/customer', require('../modules/sslcommerz/customer-sslcommerz.routes'));
+router.use('/payments/sslcommerz', require('../modules/sslcommerz/sslcommerz.routes'));
+
+Protect the /customer route using the project's existing auth middleware. Do NOT put auth middleware on /payments/sslcommerz because SSLCommerz must call IPN without a customer session.
+
+Merge these fields into the object exported by src/config/env.js:
+
+SSLCOMMERZ_STORE_ID: process.env.SSLCOMMERZ_STORE_ID || '',
+SSLCOMMERZ_STORE_PASSWORD: process.env.SSLCOMMERZ_STORE_PASSWORD || '',
+SSLCOMMERZ_SANDBOX: process.env.SSLCOMMERZ_SANDBOX !== 'false',
+SSLCOMMERZ_IPN_URL: process.env.SSLCOMMERZ_IPN_URL || '',
+SSLCOMMERZ_SUCCESS_URL: process.env.SSLCOMMERZ_SUCCESS_URL || '',
+SSLCOMMERZ_FAIL_URL: process.env.SSLCOMMERZ_FAIL_URL || '',
+SSLCOMMERZ_CANCEL_URL: process.env.SSLCOMMERZ_CANCEL_URL || '',

@@ -1,0 +1,26 @@
+PHASE 5.2 INSTALLATION
+
+1. Back up MariaDB database bengalbeyond.
+2. Run migrations/0052_destination_management.sql once.
+3. Copy src/modules/destinations/ into backend/src/modules/destinations/.
+4. In src/routes/index.js add:
+
+router.use('/destinations', require('../modules/destinations/destination.public.routes'));
+router.use('/admin/destinations', staffAuth, requirePermission('content.manage'),
+  require('../modules/destinations/destination.admin.routes'));
+
+`staffAuth` and `requirePermission` are placeholders: replace with the actual middleware
+exports in your backend. Admin endpoints must be protected.
+
+5. Restart backend.
+6. Test:
+GET http://localhost:5000/api/destinations
+GET http://localhost:5000/api/destinations/coxs-bazar
+GET http://localhost:5000/api/destinations/coxs-bazar/tours
+
+Admin endpoints require a staff token with content.manage:
+GET/POST/PUT/DELETE http://localhost:5000/api/admin/destinations
+
+Migration creates destinations, adds nullable tours.destination_id, adds its FK/index,
+and backfills existing distinct tours.destination values. Existing tours.destination
+remains unchanged. Do not run migration twice.

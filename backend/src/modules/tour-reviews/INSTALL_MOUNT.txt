@@ -1,0 +1,23 @@
+PHASE 5.6 QUICK INSTALL
+
+1) No SQL migration is required.
+2) Copy src/modules/tour-reviews into backend/src/modules/.
+3) In src/routes/index.js add public:
+   router.use("/", require("../modules/tour-reviews/review.public.routes"));
+4) Add customer submission behind customer auth:
+   router.use("/", customerAuth, require("../modules/tour-reviews/review.customer.routes"));
+5) Add admin moderation behind staff auth + reviews.moderate:
+   router.use(
+     "/admin/reviews",
+     staffAuth,
+     requirePermission("reviews.moderate"),
+     require("../modules/tour-reviews/review.admin.routes")
+   );
+6) Replace middleware placeholders with actual project middleware.
+7) Confirm auth populates req.user.id, or adjust authenticatedUserId() in review.controller.js.
+8) Restart backend.
+
+Test:
+GET /api/tours/1/reviews
+GET /api/admin/reviews?status=pending
+PATCH /api/admin/reviews/1

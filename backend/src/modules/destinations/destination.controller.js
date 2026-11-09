@@ -1,0 +1,10 @@
+const s=require('./destination.service');
+const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
+exports.publicList=wrap(async(req,res)=>res.json({success:true,data:await s.publicList(req.query)}));
+exports.publicBySlug=wrap(async(req,res)=>res.json({success:true,data:await s.publicBySlug(req.params.slug)}));
+exports.publicTours=wrap(async(req,res)=>res.json({success:true,data:await s.publicTours(req.params.slug,req.query)}));
+exports.adminList=wrap(async(req,res)=>res.json({success:true,data:await s.adminList(req.query)}));
+exports.adminGet=wrap(async(req,res)=>res.json({success:true,data:await s.adminGet(Number(req.params.id))}));
+exports.create=wrap(async(req,res)=>res.status(201).json({success:true,data:await s.create(req.body,req.user?.id)}));
+exports.update=wrap(async(req,res)=>res.json({success:true,data:await s.update(Number(req.params.id),req.body,req.user?.id)}));
+exports.remove=wrap(async(req,res)=>res.json({success:true,data:await s.remove(Number(req.params.id))}));

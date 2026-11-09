@@ -1,0 +1,11 @@
+PHASE 5.3 QUICK INSTALL
+
+1) Backup MariaDB.
+2) Execute migrations/0053_tour_categories_tags.sql.
+3) Copy src/modules/tour-taxonomy into backend/src/modules/.
+4) Mount taxonomy.public.routes in the central API router.
+5) Mount taxonomy.admin.routes at /admin/taxonomy behind staff auth + content.manage.
+   Replace staffAuth and requirePermission with your real middleware exports.
+6) Restart backend.
+
+See README.md for exact route list and smoke tests.

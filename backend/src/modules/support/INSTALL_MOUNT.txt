@@ -1,0 +1,25 @@
+PHASE 5.10 QUICK INSTALL
+
+1. Select database `bengal_beyond` and execute:
+   migrations/00510_customer_support_enquiries.sql
+
+2. Copy `src/modules/support/` into:
+   E:\Bangle_beyond\backend\src\modules\support\
+
+3. In `src/routes/index.js`, mount public enquiries:
+   router.use("/support", require("../modules/support/support.public.routes"));
+
+4. Mount customer tickets behind your REAL customer JWT/session middleware:
+   router.use("/me/support", YOUR_EXISTING_CUSTOMER_AUTH_MIDDLEWARE,
+     require("../modules/support/support.customer.routes"));
+
+5. Mount staff support behind your REAL staff auth and permission middleware:
+   router.use("/admin/support", YOUR_REAL_STAFF_AUTH_MIDDLEWARE,
+     YOUR_PERMISSION_MIDDLEWARE("settings.manage"),
+     require("../modules/support/support.admin.routes"));
+
+6. Both auth middleware must populate `req.user.id`. Your supplied starter files did not contain those middleware implementations; do not invent or remove guards.
+
+7. Add rate limiting and CAPTCHA/anti-spam protection to POST /api/support/enquiries before public production use.
+
+8. Restart backend and test public enquiry, customer ownership isolation, private-note visibility, and staff updates.

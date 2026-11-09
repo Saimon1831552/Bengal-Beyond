@@ -1,0 +1,27 @@
+PHASE 5.8 QUICK INSTALL
+
+1) Back up MariaDB.
+2) Execute migrations/0058_coupons_discount_management.sql.
+3) Copy src/modules/coupons into backend/src/modules/.
+4) Mount admin routes behind staff auth + settings.manage:
+   router.use(
+     "/admin/coupons",
+     YOUR_STAFF_AUTH_MIDDLEWARE,
+     YOUR_PERMISSION_MIDDLEWARE("settings.manage"),
+     require("../modules/coupons/coupon.admin.routes")
+   );
+5) Mount customer validation behind real customer auth:
+   router.use(
+     "/coupons",
+     YOUR_CUSTOMER_AUTH_MIDDLEWARE,
+     require("../modules/coupons/coupon.customer.routes")
+   );
+6) Both auth middlewares must set req.user.id. Replace placeholders with actual middleware.
+7) Restart backend.
+
+Test:
+GET  /api/admin/coupons
+POST /api/admin/coupons
+POST /api/coupons/validate
+
+Validation endpoint is preview only; final checkout redemption integration is not included in this phase.

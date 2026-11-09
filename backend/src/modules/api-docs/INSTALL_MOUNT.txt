@@ -1,0 +1,24 @@
+PHASE 5.1 INSTALLATION
+
+1. Copy src/modules/api-docs/ into backend/src/modules/api-docs/.
+2. Copy src/middleware/apiVersion.js into backend/src/middleware/.
+3. Open backend/src/routes/index.js and add:
+   router.use('/docs', require('../modules/api-docs/api-docs.routes'));
+
+4. Open backend/src/app.js. After app.use(requestId) and before app.use('/api', routes),
+   add:
+   const apiVersion = require('./middleware/apiVersion');
+   app.use('/api', apiVersion);
+   IMPORTANT: Your existing app currently mounts routes with app.use('/api', routes).
+   Therefore place the middleware before that mount. Do not add another /api prefix to routes.
+
+5. Restart backend.
+6. Verify:
+   GET http://localhost:5000/api/docs
+   GET http://localhost:5000/api/docs/openapi.json
+   GET http://localhost:5000/api/health
+   GET http://localhost:5000/api/health with header X-API-Version: 1
+   GET http://localhost:5000/api/health with header X-API-Version: 2 (expect 400)
+
+NOTE
+The OpenAPI file documents only endpoints present in the recent Bengal Beyond phase packages. Confirm the route mounts match your installed backend before publishing the documentation. This package does not add Swagger UI dependency or modify database schema.

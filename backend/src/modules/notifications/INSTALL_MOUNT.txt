@@ -1,0 +1,27 @@
+PHASE 5.11 QUICK INSTALL
+
+1. Run migrations/00511_notification_delivery.sql in database bengal_beyond.
+
+2. Copy src/modules/notifications/ to:
+   E:\Bangle_beyond\backend\src\modules\notifications\
+
+3. Configure real email and SMS provider adapters:
+   - providers/email.provider.js
+   - providers/sms.provider.js
+   They are intentionally stubs; delivery will fail/retry until implemented.
+
+4. Mount admin endpoints in src/routes/index.js behind real staff auth + settings.manage:
+   router.use("/admin/notifications", YOUR_REAL_STAFF_AUTH_MIDDLEWARE,
+     YOUR_PERMISSION_MIDDLEWARE("settings.manage"),
+     require("../modules/notifications/notification.admin.routes"));
+
+5. Create src/workers/notification.worker.js:
+   const { runWorker } = require("../modules/notifications/notification.worker");
+   runWorker({ pollMs: 3000, batchSize: 10 }).then(({ promise }) => promise);
+
+6. Start the worker as a separate managed process.
+
+7. Enqueue notifications from booking/payment/support service transactions using enqueueInTransaction(conn).
+   Use a stable idempotency key for each event/channel.
+
+8. Add provider credentials to environment variables (never commit them), then test in provider sandbox.

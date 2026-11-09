@@ -1,0 +1,52 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+<<<<<<< HEAD
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "node --test"
+=======
+     "start": "node src/server.js",
+     "dev": "nodemon src/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+>>>>>>> 9f43dc2df7b678a82f914694fe6d9dccb4d36bff
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "argon2": "^0.45.1",
+<<<<<<< HEAD
+    "bcryptjs": "^3.0.3",
+=======
+>>>>>>> 9f43dc2df7b678a82f914694fe6d9dccb4d36bff
+    "compression": "^1.8.2",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "csrf-csrf": "^4.0.3",
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0",
+<<<<<<< HEAD
+    "express-rate-limit": "^8.7.2",
+=======
+    "express-rate-limit": "^8.7.1",
+>>>>>>> 9f43dc2df7b678a82f914694fe6d9dccb4d36bff
+    "helmet": "^8.3.0",
+    "joi": "^18.2.9",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.24.6",
+    "nodemailer": "^10.1.1",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

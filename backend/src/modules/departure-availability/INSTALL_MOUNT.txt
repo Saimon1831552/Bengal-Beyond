@@ -1,0 +1,20 @@
+PHASE 5.5 QUICK INSTALL
+
+1) No SQL migration is needed.
+2) Copy src/modules/departure-availability into backend/src/modules/.
+3) In src/routes/index.js add public mount:
+   router.use("/", require("../modules/departure-availability/departure.public.routes"));
+4) Add protected admin mount:
+   router.use(
+     "/admin/departures",
+     staffAuth,
+     requirePermission("departures.manage"),
+     require("../modules/departure-availability/departure.admin.routes")
+   );
+   Replace middleware placeholders with your real exports.
+5) Restart backend.
+
+Test:
+GET /api/tours/1/departures
+GET /api/tours/1/departures?availableOnly=true
+GET /api/departures/1/availability

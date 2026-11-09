@@ -1,0 +1,20 @@
+PHASE 5.7 QUICK INSTALL
+
+1) Back up MariaDB.
+2) Execute migrations/0057_customer_wishlist.sql.
+3) Copy src/modules/wishlist into backend/src/modules/.
+4) In src/routes/index.js mount:
+   router.use(
+     "/me/wishlist",
+     YOUR_EXISTING_USER_AUTH_MIDDLEWARE,
+     require("../modules/wishlist/wishlist.routes")
+   );
+5) Replace the auth placeholder with the real login-token verification middleware.
+   It must set req.user.id. Do not expose these routes without verified auth.
+6) Restart backend.
+
+Test:
+GET    /api/me/wishlist
+POST   /api/me/wishlist/1
+GET    /api/me/wishlist/1/status
+DELETE /api/me/wishlist/1
