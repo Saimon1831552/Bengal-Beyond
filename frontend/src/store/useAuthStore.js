@@ -13,12 +13,18 @@ export const useAuthStore = create((set) => ({
       const storedToken = localStorage.getItem('token');
       
       if (storedUser && storedToken) {
-        set({ 
-          user: JSON.parse(storedUser), 
-          token: storedToken, 
-          isAuthenticated: true,
-          isInitialized: true
-        });
+        try {
+          set({
+            user: JSON.parse(storedUser),
+            token: storedToken,
+            isAuthenticated: true,
+            isInitialized: true,
+          });
+        } catch {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          set({ isInitialized: true });
+        }
       } else {
         set({ isInitialized: true });
       }
