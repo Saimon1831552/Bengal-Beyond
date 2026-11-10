@@ -53,8 +53,10 @@ export const destinationJsonLd = (d) =>
     description: d.summary,
     url: absoluteUrl(`/destinations/${d.slug}`),
     image: d.image ? absoluteUrl(d.image) : undefined,
-    geo: { "@type": "GeoCoordinates", latitude: d.lat, longitude: d.lng },
-    touristType: d.interests,
+    geo: d.lat != null && d.lng != null
+      ? { "@type": "GeoCoordinates", latitude: d.lat, longitude: d.lng }
+      : undefined,
+    touristType: d.interests?.length ? d.interests : undefined,
     containedInPlace: { "@type": "Country", name: "Bangladesh" },
   });
 

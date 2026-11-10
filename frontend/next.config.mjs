@@ -5,8 +5,9 @@ const nextConfig = {
   compress: true,
   images: {
     formats: ["image/avif", "image/webp"],
-    // add remote hosts you load photos from (CDN, API uploads)
-    remotePatterns: [],
+    remotePatterns: [
+      { protocol: "https", hostname: "images.unsplash.com" },
+    ],
   },
   async headers() {
     return [

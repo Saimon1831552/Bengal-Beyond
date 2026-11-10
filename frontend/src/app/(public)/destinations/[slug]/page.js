@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { buildMetadata } from "@/lib/seo";
 import { destinationJsonLd } from "@/lib/jsonld";
-import { getDestination, getDestinations, getTours } from "@/services/content";
+import { getDestination, getDestinations, getToursByDestination } from "@/services/content";
 import JsonLd from "@/components/seo/JsonLd";
 import Breadcrumbs from "@/components/seo/Breadcrumbs";
 
@@ -28,7 +28,7 @@ export default async function DestinationPage({ params }) {
   const { slug } = await params;
   const d = await getDestination(slug);
   if (!d) notFound();
-  const related = (await getTours()).filter((t) => t.destinations.includes(d.slug));
+  const related = await getToursByDestination(d.slug);
 
   return (
     <main>

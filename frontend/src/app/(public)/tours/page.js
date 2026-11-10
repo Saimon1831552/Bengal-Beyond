@@ -2,6 +2,8 @@ import Link from "next/link";
 import { buildMetadata } from "@/lib/seo";
 import { getTours } from "@/services/content";
 import Breadcrumbs from "@/components/seo/Breadcrumbs";
+import Container from "@/components/ui/Container";
+import TourCard from "@/components/cards/TourCard";
 
 export const metadata = buildMetadata({
   title: "Bangladesh Tours & Experiences",
@@ -12,14 +14,12 @@ export const metadata = buildMetadata({
 export default async function ToursPage() {
   const tours = await getTours();
   return (
-    <main>
-      <Breadcrumbs items={[{ name: "Home", path: "/" }, { name: "Tours", path: "/tours" }]} />
-      <h1>Bangladesh Tours &amp; Experiences</h1>
-      <ul>
-        {tours.map((t) => (
-          <li key={t.slug}><h2><Link href={`/tours/${t.slug}`}>{t.title}</Link></h2><p>{t.days} days · {t.category}</p><p>{t.summary}</p></li>
-        ))}
-      </ul>
-    </main>
-  );
+       <Container as="main" className="py-10">
+         <Breadcrumbs items={[{ name: "Home", path: "/" }, { name: "Tours", path: "/tours" }]} />
+         <h1 className="mt-4 text-4xl">Bangladesh Tours &amp; Experiences</h1>
+         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+           {tours.map((t) => <TourCard key={t.slug} tour={t} />)}
+         </div>
+       </Container>
+      );
 }

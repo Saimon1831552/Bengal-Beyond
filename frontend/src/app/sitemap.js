@@ -15,12 +15,15 @@ export default async function sitemap() {
     { path: "/contact", priority: 0.5, changeFrequency: "yearly" },
   ].map((r) => ({ url: absoluteUrl(r.path), lastModified: BUILD_DATE, changeFrequency: r.changeFrequency, priority: r.priority }));
 
-  const entry = (base, item, priority) => ({
-    url: absoluteUrl(`${base}/${item.slug}`),
-    lastModified: new Date(item.updatedAt || item.publishedAt),
-    changeFrequency: "monthly",
-    priority,
-  });
+  const entry = (base, item, priority) => {
+    const date = item.updatedAt || item.publishedAt;
+    return {
+      url: absoluteUrl(`${base}/${item.slug}`),
+      lastModified: date ? new Date(date) : undefined,
+      changeFrequency: "monthly",
+      priority,
+    };
+  };
 
   return [
     ...staticRoutes,
