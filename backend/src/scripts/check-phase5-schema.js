@@ -1,9 +1,11 @@
-const { pool, closePool } = require("../src/config/db");
+const { pool, closePool } = require("../config/db");
 
 const required = {
   destinations: ["id", "slug", "name"],
   tour_categories: ["id"],
+  tour_category_assignments: ["tour_id", "category_id"],
   tour_tags: ["id"],
+  tour_tag_assignments: ["tour_id", "tag_id"],
   wishlist_items: ["id", "user_id", "tour_id"],
   coupons: ["id", "code", "discount_type", "discount_value", "status"],
   coupon_redemptions: ["id", "coupon_id", "booking_id", "user_id", "discount_amount", "status"],
@@ -11,7 +13,12 @@ const required = {
   support_messages: ["id", "ticket_id", "sender_type", "message_text", "is_internal"],
   notification_templates: ["id", "template_key", "channel", "body_template"],
   notification_jobs: ["id", "channel", "recipient", "status", "idempotency_key"],
-  notification_attempts: ["id", "job_id", "attempt_number", "outcome"]
+  notification_attempts: ["id", "job_id", "attempt_number", "outcome"],
+  payment_webhook_events: [
+    "id", "provider", "event_key", "validation_id", "payload_json",
+    "processing_status", "attempt_count", "next_retry_at"
+  ],
+  tours: ["destination_id"]
 };
 
 async function main() {

@@ -56,22 +56,29 @@ async function processEvent(eventId) {
         attempt_count=attempt_count+1,last_attempt_at=UTC_TIMESTAMP(),last_error=NULL WHERE id=?`,
       [eventId]
     );
-    return ev.payload_json;
+    return {
+      payload_json: ev.payload_json,
+      attempt_count: Number(ev.attempt_count) + 1
+    };
   });
   if(!claimed) return { skipped:true };
   try {
-    const payload=typeof claimed==='string'?JSON.parse(claimed):claimed;
+    const payload=typeof claimed.payload_json==='string'
+      ? JSON.parse(claimed.payload_json)
+      : claimed.payload_json;
     const result=await sslcommerz.validateAndApply(payload);
     await pool.execute(
       `UPDATE payment_webhook_events SET processing_status='processed',processed_at=UTC_TIMESTAMP(),
-        result_json=?,last_error=NULL WHERE id=?`,
+        result_json=?,last_error=NULL,next_retry_at=NULL WHERE id=?`,
       [JSON.stringify(result),eventId]
     );
     return result;
   } catch(error) {
+    const retryDelay = Math.min(3600, 30 * (2 ** Math.max(0, claimed.attempt_count - 1)));
     await pool.execute(
-      `UPDATE payment_webhook_events SET processing_status='failed',last_error=? WHERE id=?`,
-      [String(error.message||'Webhook processing failed').slice(0,1000),eventId]
+      `UPDATE payment_webhook_events SET processing_status='failed',last_error=?,
+        next_retry_at=DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? SECOND) WHERE id=?`,
+      [String(error.message||'Webhook processing failed').slice(0,1000),retryDelay,eventId]
     );
     throw error;
   }

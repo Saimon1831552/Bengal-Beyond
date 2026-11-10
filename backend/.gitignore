@@ -1,9 +1,18 @@
 @"
 node_modules/
 .env
-.env.*
+.env.local
 .env.example
-database/
+database/*
+!database/migrations/
+database/migrations/*
+!database/migrations/0048_payment_webhook_events.sql
+!database/migrations/0052_destination_management.sql
+!database/migrations/0053_tour_categories_tags.sql
+!database/migrations/0057_customer_wishlist.sql
+!database/migrations/0058_coupons_discount_management.sql
+!database/migrations/00510_customer_support_enquiries.sql
+!database/migrations/00511_notification_delivery.sql
 coverage/
 dist/
 "@ | Set-Content .gitignore

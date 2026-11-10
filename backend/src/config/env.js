@@ -22,7 +22,7 @@ const env = {
   DB_PORT: Number(process.env.DB_PORT || 3306),
   DB_USER: process.env.DB_USER || "root",
   DB_PASSWORD: process.env.DB_PASSWORD || "",
-  DB_NAME: process.env.DB_NAME || "bengal_beyond",
+  DB_NAME: process.env.DB_NAME || "bengalBeyond",
   DB_CONNECTION_LIMIT: Number(
     process.env.DB_CONNECTION_LIMIT || 10
   ),
@@ -48,10 +48,7 @@ if (!Number.isInteger(env.TRUST_PROXY_HOPS) || env.TRUST_PROXY_HOPS < 0) {
   throw new Error("TRUST_PROXY_HOPS must be a non-negative integer.");
 }
 
-if (
-  typeof env.JWT_ACCESS_SECRET !== "string" ||
-  env.JWT_ACCESS_SECRET.trim().length < 32
-) {
+if (typeof env.JWT_ACCESS_SECRET !== "string" || env.JWT_ACCESS_SECRET.trim().length < 32) {
   throw new Error("JWT_ACCESS_SECRET must be configured and at least 32 characters long.");
 }
 
