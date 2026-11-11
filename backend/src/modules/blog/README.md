@@ -1,6 +1,6 @@
 # Bengal Beyond — Phase 6.2 Blog API
 
-Backend-only Blog API package. It creates a dedicated `blog_posts` table and does not alter existing tour, gallery, booking, or payment tables.
+Backend-only Blog API package. Its migration extends the existing `blog_posts` table without removing existing posts or changing other tables.
 
 ## Features
 - Public paginated list of published posts
@@ -14,7 +14,7 @@ Backend-only Blog API package. It creates a dedicated `blog_posts` table and doe
 
 ## Install
 1. Copy `src/modules/blog/` into your backend's `src/modules/blog/`.
-2. Run `database/migrations/0062_create_blog_posts.sql` against `bengal_beyond`.
+2. Run `database/migrations/0062_create_blog_posts.sql` against `bengalbeyond` before starting the API. This adds the image and SEO columns used by the API; existing post content and authors remain in `body` and `author_user_id`.
 3. Add this to `src/routes/index.js` (reuse existing imports if present):
 
 ```js

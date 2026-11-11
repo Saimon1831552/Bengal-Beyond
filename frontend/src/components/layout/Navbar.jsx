@@ -1,10 +1,9 @@
 "use client";
-
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Container from "@/components/ui/Container";
-import Button from "@/components/ui/Button";
+import Magnetic from "@/components/fx/Magnetic";
 import { siteConfig } from "@/config/site";
 
 const links = [
@@ -15,71 +14,87 @@ const links = [
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const pathname = usePathname();
+  const isHome = pathname === "/";
+  const overHero = isHome && !scrolled && !open;
 
-  const isActive = (href) => pathname === href || pathname.startsWith(`${href}/`);
+  useEffect(() => {
+    const on = () => setScrolled(window.scrollY > 40);
+    on();
+    window.addEventListener("scroll", on, { passive: true });
+    return () => window.removeEventListener("scroll", on);
+  }, []);
+
+  const active = (h) => pathname === h || pathname.startsWith(`${h}/`);
+  const tone = overHero ? "text-white" : "text-primary";
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur">
-      <Container className="flex h-16 items-center justify-between">
-        <Link href="/" className="font-display text-xl font-semibold text-primary" onClick={() => setOpen(false)}>
-          {siteConfig.name}
-        </Link>
+    <>
+      <header
+        className={`fixed inset-x-0 top-0 z-50 border-b backdrop-blur-xl transition-all duration-500 ${
+          overHero ? "border-white/20 bg-white/10" : "border-border bg-white/80 shadow-sm"
+        }`}
+      >
+        <Container className="flex h-16 items-center justify-between">
+          <Link href="/" onClick={() => setOpen(false)} className={`font-display text-xl font-semibold ${tone}`}>
+            {siteConfig.name}
+          </Link>
 
-        {/* Desktop */}
-        <nav aria-label="Main" className="hidden items-center gap-8 md:flex">
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              aria-current={isActive(l.href) ? "page" : undefined}
-              className={`text-sm font-medium transition-colors ${
-                isActive(l.href) ? "text-primary" : "text-muted hover:text-primary"
-              }`}
-            >
-              {l.label}
-            </Link>
-          ))}
-          <Button href="/sign-in" variant="outline" rel="nofollow">
-            Sign in
-          </Button>
-        </nav>
-
-        {/* Mobile toggle */}
-        <button
-          type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-primary md:hidden"
-          aria-label={open ? "Close menu" : "Open menu"}
-          aria-expanded={open}
-          aria-controls="mobile-menu"
-          onClick={() => setOpen((v) => !v)}
-        >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            {open ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
-          </svg>
-        </button>
-      </Container>
-
-      {/* Mobile menu */}
-      {open && (
-        <nav id="mobile-menu" aria-label="Mobile" className="border-t border-border bg-background md:hidden">
-          <Container className="flex flex-col gap-1 py-3">
+          <nav aria-label="Main" className="hidden items-center gap-8 md:flex">
             {links.map((l) => (
               <Link
                 key={l.href}
                 href={l.href}
-                onClick={() => setOpen(false)}
-                className="rounded-lg px-3 py-2.5 text-base font-medium text-primary hover:bg-primary/10"
+                aria-current={active(l.href) ? "page" : undefined}
+                className={`relative text-sm font-medium ${tone} after:absolute after:-bottom-1 after:left-0 after:h-px after:w-full after:origin-left after:bg-current after:transition-transform after:duration-300 ${
+                  active(l.href) ? "after:scale-x-100" : "after:scale-x-0 hover:after:scale-x-100"
+                }`}
               >
                 {l.label}
               </Link>
             ))}
-            <Button href="/sign-in" variant="primary" className="mt-2" onClick={() => setOpen(false)}>
-              Sign in
-            </Button>
-          </Container>
-        </nav>
-      )}
-    </header>
+            <Link href="/sign-in" rel="nofollow" className={`text-sm font-medium ${tone}`}>Sign in</Link>
+            <Magnetic>
+              <Link
+                href="/tours"
+                className="inline-flex rounded-full bg-gold px-6 py-2.5 text-sm font-semibold text-primary-dark shadow-[0_0_22px_rgba(214,168,95,.55)] transition-shadow hover:shadow-[0_0_38px_rgba(214,168,95,.95)]"
+              >
+                Book Now
+              </Link>
+            </Magnetic>
+          </nav>
+
+          <button
+            type="button"
+            className={`inline-flex h-10 w-10 items-center justify-center md:hidden ${tone}`}
+            aria-label={open ? "Close menu" : "Open menu"}
+            aria-expanded={open}
+            aria-controls="mobile-menu"
+            onClick={() => setOpen((v) => !v)}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              {open ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+            </svg>
+          </button>
+        </Container>
+
+        {open && (
+          <nav id="mobile-menu" aria-label="Mobile" className="border-t border-border bg-white md:hidden">
+            <Container className="flex flex-col gap-1 py-3">
+              {[...links, { href: "/sign-in", label: "Sign in" }].map((l) => (
+                <Link key={l.href} href={l.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 font-medium text-primary hover:bg-primary/10">
+                  {l.label}
+                </Link>
+              ))}
+              <Link href="/tours" onClick={() => setOpen(false)} className="mt-2 rounded-full bg-gold px-5 py-3 text-center font-semibold text-primary-dark">
+                Book Now
+              </Link>
+            </Container>
+          </nav>
+        )}
+      </header>
+      {!isHome && <div className="h-16" aria-hidden="true" />}
+    </>
   );
 }

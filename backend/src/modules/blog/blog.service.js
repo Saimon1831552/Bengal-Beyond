@@ -15,7 +15,7 @@ async function listPublic({ page, limit }) {
 
 async function getPublicBySlug(slug) {
   const [rows] = await pool.execute(
-    `SELECT id, title, slug, excerpt, content, featured_image_url, featured_image_alt,
+    `SELECT id, title, slug, excerpt, body AS content, featured_image_url, featured_image_alt,
             seo_title, seo_description, published_at, created_at
        FROM blog_posts WHERE slug = ? AND status = 'published' LIMIT 1`, [slug]
   );
@@ -29,7 +29,7 @@ async function listAdmin({ page, limit, status }) {
   const countParams = status ? [status] : [];
   const [items] = await pool.execute(
     `SELECT id, title, slug, excerpt, featured_image_url, featured_image_alt, status,
-            seo_title, seo_description, author_id, published_at, created_at, updated_at
+            seo_title, seo_description, author_user_id AS author_id, published_at, created_at, updated_at
        FROM blog_posts ${where} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`, params
   );
   const [[count]] = await pool.execute(`SELECT COUNT(*) AS total FROM blog_posts ${where}`, countParams);
@@ -38,15 +38,20 @@ async function listAdmin({ page, limit, status }) {
 }
 
 async function getAdminById(id) {
-  const [rows] = await pool.execute("SELECT * FROM blog_posts WHERE id = ? LIMIT 1", [id]);
+  const [rows] = await pool.execute(
+    `SELECT id, title, slug, excerpt, body AS content, featured_image_url, featured_image_alt,
+            status, seo_title, seo_description, author_user_id AS author_id,
+            published_at, created_at, updated_at
+       FROM blog_posts WHERE id = ? LIMIT 1`, [id]
+  );
   return rows[0] || null;
 }
 
 async function create(data, authorId) {
   const publishedAt = data.status === "published" ? new Date() : null;
   const [result] = await pool.execute(
-    `INSERT INTO blog_posts (title, slug, excerpt, content, featured_image_url, featured_image_alt,
-      status, seo_title, seo_description, author_id, published_at)
+    `INSERT INTO blog_posts (title, slug, excerpt, body, featured_image_url, featured_image_alt,
+      status, seo_title, seo_description, author_user_id, published_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [data.title, data.slug, data.excerpt ?? null, data.content, data.featured_image_url ?? null,
      data.featured_image_alt ?? null, data.status || "draft", data.seo_title ?? null,
@@ -63,7 +68,7 @@ async function update(id, data) {
   if (data.status === "published" && current.status !== "published") publishedAt = new Date();
   if (data.status && data.status !== "published") publishedAt = null;
   await pool.execute(
-    `UPDATE blog_posts SET title=?, slug=?, excerpt=?, content=?, featured_image_url=?,
+    `UPDATE blog_posts SET title=?, slug=?, excerpt=?, body=?, featured_image_url=?,
       featured_image_alt=?, status=?, seo_title=?, seo_description=?, published_at=? WHERE id=?`,
     [next.title, next.slug, next.excerpt, next.content, next.featured_image_url,
      next.featured_image_alt, next.status, next.seo_title, next.seo_description, publishedAt, id]
