@@ -10,6 +10,8 @@
   --sand: #E8D8B9;
   --muted: #5B6661;
   --border: #E3E0D5;
+  --terracotta: #C8643C;
+  --ocean: #1F6FA8;
 }
 
 /* Tailwind v4: expose tokens as utilities (bg-primary, text-gold, font-display ...) */
@@ -26,7 +28,25 @@
 
   --font-display: var(--font-display), Georgia, serif;
   --font-sans: var(--font-body), system-ui, sans-serif;
+  --color-terracotta: var(--terracotta);
+  --color-ocean: var(--ocean);
 }
+
+@layer base {
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-body), system-ui, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4 { font-family: var(--font-display), Georgia, serif; line-height: 1.15; }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+}
+
+.skip-link { position: absolute; left: -9999px; top: 0; background: var(--primary); color: #fff; padding: .75rem 1rem; z-index: 100; }
+.skip-link:focus { left: 0; }
 
 body {
   background: var(--background);
