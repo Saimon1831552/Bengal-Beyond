@@ -27,7 +27,7 @@ export default function HolidayTours({ tours }) {
 
       <div ref={ref} className="flex snap-x snap-mandatory gap-6 overflow-x-auto px-[max(1rem,calc((100vw-72rem)/2))] pb-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tours.map((t) => (
-          <Link key={t.slug} href={t.href} className="group relative h-[30rem] w-[19rem] shrink-0 snap-start overflow-hidden rounded-3xl">
+          <Link key={t.slug} href={t.href} data-cursor="View" className="group relative h-[30rem] w-[19rem] shrink-0 snap-start overflow-hidden rounded-3xl">
             <Image src={t.image} alt="" fill sizes="304px" className="object-cover transition-transform duration-700 group-hover:scale-110" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
             <div className="absolute inset-0 bg-black/0 transition-colors duration-500 group-hover:bg-black/45" />

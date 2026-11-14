@@ -209,9 +209,12 @@ async function expireHoldsBatch(batchSize = 500) {
   try {
     await connection.beginTransaction();
     const [rows] = await connection.query(
-      `SELECT id, booking_id FROM seat_holds
-        WHERE hold_status = 'active' AND expires_at <= UTC_TIMESTAMP()
-        ORDER BY expires_at, id LIMIT ? FOR UPDATE`,
+      `SELECT h.id, h.booking_id
+         FROM seat_holds h JOIN bookings b ON b.id = h.booking_id
+        WHERE h.hold_status = 'active' AND h.expires_at <= UTC_TIMESTAMP()
+          AND b.payment_status <> 'paid'
+          AND (b.payment_status <> 'pending' OR b.updated_at < UTC_TIMESTAMP() - INTERVAL 45 MINUTE)
+        ORDER BY h.expires_at, h.id LIMIT ? FOR UPDATE`,
       [Math.min(2000, Math.max(1, Number(batchSize) || 500))]
     );
     if (!rows.length) {

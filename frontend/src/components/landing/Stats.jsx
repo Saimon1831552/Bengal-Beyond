@@ -1,15 +1,16 @@
 "use client";
-import Image from "next/image";
 import Container from "@/components/ui/Container";
 import Counter from "@/components/fx/Counter";
+import ShaderCanvas from "@/components/fx/ShaderCanvas";
+import { AURORA } from "@/lib/shaders";
 import SectionHeader from "./SectionHeader";
-import { STATS, img } from "./data";
+import { STATS } from "./data";
 
 export default function Stats() {
   return (
     <section className="relative overflow-hidden py-24 text-white">
-      <Image src={img(1, 1800)} alt="" fill sizes="100vw" className="object-cover" />
-      <div className="absolute inset-0 bg-primary-dark/85" />
+      <ShaderCanvas frag={AURORA} dprMax={1} className="pointer-events-none absolute inset-0 h-full w-full" />
+      <div className="absolute inset-0 bg-primary-dark/35" />
       <Container className="relative">
         <SectionHeader light eyebrow="Trust" title="Why travellers keep faith in Bengal Beyond" />
         <div className="grid grid-cols-2 gap-8 text-center lg:grid-cols-4">

@@ -41,6 +41,7 @@ export default function Gallery() {
               key={i}
               layoutId={`g-${i}`}
               onClick={() => setOpen(i)}
+              data-cursor="Open"
               style={{ aspectRatio: g.ratio }}
               className={`relative overflow-hidden rounded-2xl ${i % 3 === 0 ? "col-span-2" : ""}`}
               aria-label={`Open photo: ${g.caption}`}

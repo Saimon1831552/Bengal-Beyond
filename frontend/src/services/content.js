@@ -93,6 +93,21 @@ export async function getTours() {
   return (data ?? []).map((r) => mapTour(r));
 }
 
+export async function searchTours(filters) {
+  const query = new URLSearchParams();
+  for (const key of ["destinationId", "departureFrom", "departureTo", "guests"]) {
+    if (filters[key]) query.set(key, filters[key]);
+  }
+  const path = `/tours/search?${query.toString()}`;
+  const res = await fetch(`${API}${path}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`API ${res.status} for ${path}`);
+  const json = await res.json();
+  return (json.data ?? []).map((r) => mapTour(r));
+}
+
 export async function getTour(slug) {
   const r = await api(`/tours/${encodeURIComponent(slug)}`);
   if (!r) return null;

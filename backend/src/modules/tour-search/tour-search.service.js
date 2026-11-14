@@ -26,12 +26,23 @@ function buildWhere(f) {
   if (f.maxDuration !== undefined) { clauses.push("t.duration_days <= ?"); params.push(f.maxDuration); }
   if (f.minPrice !== undefined) { clauses.push("t.base_price >= ?"); params.push(f.minPrice); }
   if (f.maxPrice !== undefined) { clauses.push("t.base_price <= ?"); params.push(f.maxPrice); }
-  const hasDepartureFilter = !!(f.departureFrom || f.departureTo || f.availableOnly || f.sort === "departure_soon");
+  const hasDepartureFilter = !!(f.departureFrom || f.departureTo || f.availableOnly || f.guests || f.sort === "departure_soon");
   if (hasDepartureFilter) {
     const dep = ["d.tour_id = t.id", "d.status = 'scheduled'"];
     if (f.departureFrom) { dep.push("d.starts_at >= ?"); params.push(`${f.departureFrom} 00:00:00`); }
     if (f.departureTo) { dep.push("d.starts_at < DATE_ADD(?, INTERVAL 1 DAY)"); params.push(`${f.departureTo} 00:00:00`); }
     if (f.availableOnly) dep.push("(d.seat_capacity > d.seats_reserved)");
+    if (f.guests) {
+      dep.push(`GREATEST(
+        CAST(d.seat_capacity AS SIGNED) - CAST(d.seats_reserved AS SIGNED) - CAST(COALESCE((
+          SELECT SUM(h.quantity) FROM seat_holds h
+          WHERE h.departure_id = d.id AND h.hold_status = 'active'
+            AND h.expires_at > UTC_TIMESTAMP()
+        ), 0) AS SIGNED),
+        0
+      ) >= ?`);
+      params.push(f.guests);
+    }
     clauses.push(`EXISTS (SELECT 1 FROM tour_departures d WHERE ${dep.join(" AND ")})`);
   }
   return { sql: clauses.join(" AND "), params };

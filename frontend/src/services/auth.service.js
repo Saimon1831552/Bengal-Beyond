@@ -1,45 +1,25 @@
-import api from '../lib/axios';
-import { useAuthStore } from '../store/useAuthStore';
+import api, { refreshSession } from "../lib/axios";
+import { useAuthStore } from "../store/useAuthStore";
+import { setSessionHint, clearSessionHint } from "../lib/session";
 
-function responseData(response) {
-  return response.data?.data ?? response.data;
-}
+const unwrap = (res) => res.data?.data ?? res.data;
 
 function saveSession(session) {
-  if (!session?.accessToken) {
-    throw new Error('Authentication response did not include an access token.');
-  }
-
-  localStorage.setItem('token', session.accessToken);
-  if (session.user) {
-    localStorage.setItem('user', JSON.stringify(session.user));
-  }
+  if (!session?.accessToken) throw new Error("Authentication response did not include an access token.");
   useAuthStore.getState().setAuth(session.user || null, session.accessToken);
+  setSessionHint();
   return session;
 }
 
 export const authService = {
-  login: async (email, password) => {
-    const response = await api.post('/auth/login', { email, password });
-    return saveSession(responseData(response));
-  },
-
-  register: async (userData) => {
-    const response = await api.post('/auth/register', userData);
-    return saveSession(responseData(response));
-  },
-
-  refreshSession: async () => {
-    const response = await api.post('/auth/refresh');
-    return saveSession(responseData(response));
-  },
-
+  login: async (email, password) => saveSession(unwrap(await api.post("/auth/login", { email, password }))),
+  register: async (data) => saveSession(unwrap(await api.post("/auth/register", data))),
+  refreshSession,
   logout: async () => {
     try {
-      await api.post('/auth/logout');
+      await api.post("/auth/logout");
     } finally {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      clearSessionHint();
       useAuthStore.getState().clearAuth();
     }
   },

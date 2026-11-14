@@ -7,7 +7,7 @@ const departureFields = {
   starts_at: dateTime,
   ends_at: dateTime.nullable().optional(),
   seat_capacity: z.coerce.number().int().min(1).max(100000),
-  price_override: z.union([z.coerce.number().min(0).max(9999999999.99), z.null()]).optional(),
+  price_override: z.union([z.null(), z.coerce.number().min(0).max(9999999999.99)]).optional(),
 };
 const createDepartureBody = z.object(departureFields).strict();
 const updateDepartureBody = z.object({

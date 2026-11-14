@@ -18,5 +18,5 @@ export default function Magnetic({ children, strength = 0.35, className = "" }) 
     el.addEventListener("mouseleave", leave);
     return () => { el.removeEventListener("mousemove", move); el.removeEventListener("mouseleave", leave); };
   }, [strength]);
-  return <div ref={ref} className={`inline-block ${className}`}>{children}</div>;
+  return <div ref={ref} data-magnetic className={`inline-block ${className}`}>{children}</div>;
 }

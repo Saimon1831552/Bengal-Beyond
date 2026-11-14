@@ -1,6 +1,19 @@
 const AppError = require("../../utils/appError");
 const repository = require("./admin-tour.repository");
+const { paginationMeta } = require("../../utils/pagination");
 
+async function listTours(filters) {
+  const { rows, total } = await repository.listAll({
+    ...filters,
+    offset: (filters.page - 1) * filters.limit,
+  });
+  return { rows, meta: paginationMeta({ page: filters.page, limit: filters.limit, total }) };
+}
+async function getTour(id) {
+  const tour = await repository.findById(id);
+  if (!tour) throw AppError.notFound("Tour not found.", "TOUR_NOT_FOUND");
+  return tour;
+}
 function slugify(value) {
   return value.normalize("NFKD").toLowerCase().replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 180).replace(/-+$/g, "");
@@ -27,7 +40,11 @@ function normalizeCreate(data) {
 async function createTour(data, actorId) {
   const normalized = normalizeCreate(data);
   await assertSlugAvailable(normalized.slug);
-  try { return await repository.create(normalized, actorId); }
+  try {
+    const tour = await repository.create(normalized, actorId);
+    await repository.syncDestination(tour.id);
+    return tour;
+  }
   catch (error) {
     if (error.code === "ER_DUP_ENTRY") throw AppError.conflict("That slug is already in use.", { field: "slug" }, "TOUR_SLUG_EXISTS");
     throw error;
@@ -41,6 +58,7 @@ async function updateTour(id, data, actorId) {
   try {
     const updated = await repository.update(id, normalized, actorId);
     if (!updated) throw AppError.notFound("Tour not found.", "TOUR_NOT_FOUND");
+    if (normalized.destination !== undefined) await repository.syncDestination(id);
     return updated;
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY") throw AppError.conflict("That slug is already in use.", { field: "slug" }, "TOUR_SLUG_EXISTS");
@@ -60,4 +78,4 @@ async function deleteTour(id, actorId) {
   await repository.softDelete(id, actorId);
   return { id: Number(id), deleted: true };
 }
-module.exports = { createTour, updateTour, changeStatus, deleteTour };
+module.exports = { listTours, getTour, createTour, updateTour, changeStatus, deleteTour };

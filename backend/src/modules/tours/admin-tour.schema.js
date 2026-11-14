@@ -1,5 +1,5 @@
 const { z } = require("zod");
-const { idParams } = require("../../validators/common");
+const { idParams, paginationQuery } = require("../../validators/common");
 
 const slug = z.string().trim().min(1).max(180).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase letters, numbers, and hyphens.");
 const money = z.coerce.number().finite().min(0).max(9999999999.99);
@@ -31,4 +31,9 @@ const updateTourBody = z.object({
   cancellation_policy: tourFields.cancellation_policy,
 }).strict().refine((v) => Object.keys(v).length > 0, { message: "Provide at least one field to update." });
 const statusBody = z.object({ status: z.enum(["draft", "published", "unpublished", "archived"]) }).strict();
-module.exports = { idParams, createTourBody, updateTourBody, statusBody };
+const listQuery = paginationQuery.extend({
+  q: z.string().trim().max(120).optional(),
+  status: z.enum(["draft", "published", "unpublished", "archived"]).optional(),
+}).strict();
+
+module.exports = { idParams, createTourBody, updateTourBody, statusBody, listQuery };

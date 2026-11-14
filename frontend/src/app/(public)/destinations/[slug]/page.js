@@ -39,7 +39,7 @@ export default async function DestinationPage({ params }) {
       {related.length > 0 && (
         <section aria-labelledby="rt">
           <h2 id="rt">Tours in {d.name}</h2>
-          <ul>{related.map((t) => <li key={t.slug}><Link href={`/tours/${t.slug}`}>{t.title}</Link></li>)}</ul>
+          <ul>{related.map((t) => <li key={t.slug}><Link className="link-underline" href={`/tours/${t.slug}`}>{t.title}</Link></li>)}</ul>
         </section>
       )}
       <JsonLd data={destinationJsonLd(d)} />

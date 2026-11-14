@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 import Image from "next/image";
 import Container from "@/components/ui/Container";
+import ClipReveal from "@/components/fx/ClipReveal";
 import SectionHeader from "./SectionHeader";
 import { gsap, prefersReduced } from "@/lib/gsap";
 import { img } from "./data";
@@ -47,16 +48,20 @@ export default function About() {
         <div className="relative h-[34rem]">
           <div className="absolute -left-6 top-10 -z-10 h-56 w-56 rounded-full bg-terracotta/25 blur-2xl" />
           <div className="absolute -right-4 bottom-0 -z-10 h-64 w-64 rounded-[40%] bg-ocean/20 blur-2xl" />
-          <div data-pan="8" className="absolute right-0 top-0 h-[22rem] w-4/5 overflow-hidden rounded-[2rem] shadow-xl">
-            <div className="absolute inset-x-0 -inset-y-[12%]">
-              <Image src={img(2, 1200)} alt="Tea estates in the hills" fill sizes="(min-width:768px) 35vw, 80vw" className="object-cover" />
+          <ClipReveal className="absolute right-0 top-0 h-[22rem] w-4/5 shadow-xl" delay={0.12}>
+            <div data-pan="8" className="absolute inset-0 overflow-hidden rounded-[2rem]">
+              <div className="absolute inset-x-0 -inset-y-[12%]">
+                <Image src={img(2, 1200)} alt="Tea estates in the hills" fill sizes="(min-width:768px) 35vw, 80vw" className="object-cover" />
+              </div>
             </div>
-          </div>
-          <div data-pan="12" className="absolute bottom-0 left-0 h-72 w-3/5 overflow-hidden rounded-[2rem] border-8 border-white shadow-2xl">
-            <div className="absolute inset-x-0 -inset-y-[15%]">
-              <Image src={img(0, 1000)} alt="Bay of Bengal coast" fill sizes="(min-width:768px) 25vw, 60vw" className="object-cover" />
+          </ClipReveal>
+          <ClipReveal className="absolute bottom-0 left-0 h-72 w-3/5 border-8 border-white shadow-2xl" delay={0.24}>
+            <div data-pan="12" className="absolute inset-0 overflow-hidden rounded-[1.5rem]">
+              <div className="absolute inset-x-0 -inset-y-[15%]">
+                <Image src={img(0, 1000)} alt="Bay of Bengal coast" fill sizes="(min-width:768px) 25vw, 60vw" className="object-cover" />
+              </div>
             </div>
-          </div>
+          </ClipReveal>
         </div>
       </Container>
     </section>

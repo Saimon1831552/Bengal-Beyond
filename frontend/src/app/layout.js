@@ -5,10 +5,13 @@ import JsonLd from "@/components/seo/JsonLd";
 import { organizationJsonLd, websiteJsonLd } from "@/lib/jsonld";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
+import AuthProvider from "@/components/providers/AuthProvider";
+import CustomCursor from "@/components/fx/CustomCursor";
+import MicroFX from "@/components/fx/MicroFX";
 
-// Self-hosted by Next: no render-blocking Google Fonts request, no layout shift
-const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-display", display: "swap", style: ["normal", "italic"] });
-const manrope = Manrope({ subsets: ["latin"], variable: "--font-body", display: "swap" });
+
+const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces", display: "swap", style: ["normal", "italic"] });
+const manrope  = Manrope({ subsets: ["latin"], variable: "--font-manrope", display: "swap" });
 
 export const metadata = {
   metadataBase: new URL(siteConfig.url),
@@ -47,13 +50,17 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang={siteConfig.language} className={`${fraunces.variable} ${manrope.variable}`}>
-      <body className="flex min-h-screen flex-col">
-         <a href="#main" className="skip-link">Skip to content</a>
-         <Navbar />
-         <div id="main" className="flex-1">{children}</div>
-         <Footer />
+       <body className="flex min-h-screen flex-col">
+         <AuthProvider>
+           <a href="#main" className="skip-link">Skip to content</a>
+           <Navbar />
+           <div id="main" className="flex-1">{children}</div>
+           <Footer />
+         </AuthProvider>
+         <CustomCursor />
+         <MicroFX />
          <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
-      </body>
+       </body>
     </html>
   );
 }

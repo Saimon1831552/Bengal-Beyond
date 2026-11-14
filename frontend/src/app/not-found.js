@@ -7,7 +7,7 @@ export default function NotFound() {
   return (
     <main style={{ padding: "120px 24px", textAlign: "center" }}>
       <h1>This page has wandered off</h1>
-      <p>Try our <Link href="/destinations">destinations</Link> or <Link href="/tours">tours</Link>.</p>
+      <p>Try our <Link className="link-underline" href="/destinations">destinations</Link> or <Link className="link-underline" href="/tours">tours</Link>.</p>
     </main>
   );
 }

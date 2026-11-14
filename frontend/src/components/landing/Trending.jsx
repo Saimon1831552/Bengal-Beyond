@@ -31,6 +31,7 @@ export default function Trending({ destinations }) {
             <Link
               key={d.slug}
               href={`/destinations/${d.slug}`}
+              data-cursor="Explore"
               onMouseEnter={() => setLabel(d.name)}
               onMouseLeave={() => setLabel(null)}
               className={`group relative overflow-hidden rounded-3xl ${spans[i] || ""}`}

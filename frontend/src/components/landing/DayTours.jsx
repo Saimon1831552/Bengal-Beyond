@@ -16,7 +16,8 @@ export default function DayTours({ tours }) {
             <div key={t.slug} className={i % 2 ? "md:translate-y-10" : ""}>
               <Link
                 href={t.href}
-                className="group flex items-center gap-5 rounded-2xl border border-border bg-white p-4 transition-all duration-300 hover:-translate-y-2.5 hover:shadow-[0_22px_40px_-12px_rgba(22,133,106,.55)]"
+                data-cursor="View"
+                className="group lift flex items-center gap-5 rounded-2xl border border-border bg-white p-4"
               >
                 <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl">
                   <Image src={t.image} alt="" fill sizes="96px" className="object-cover" />

@@ -2,6 +2,14 @@ const asyncHandler = require("../../utils/asynchandler");
 const { sendSuccess } = require("../../utils/response");
 const service = require("./admin-tour.service");
 
+const list = asyncHandler(async (req, res) => {
+  const result = await service.listTours(req.validated.query);
+  return sendSuccess(res, result.rows, { meta: result.meta });
+});
+const get = asyncHandler(async (req, res) => {
+  const tour = await service.getTour(req.validated.params.id);
+  return sendSuccess(res, tour);
+});
 const create = asyncHandler(async (req, res) => {
   const tour = await service.createTour(req.validated.body, req.auth.userId);
   return sendSuccess(res, tour, { status: 201 });
@@ -18,4 +26,4 @@ const remove = asyncHandler(async (req, res) => {
   const result = await service.deleteTour(req.validated.params.id, req.auth.userId);
   return sendSuccess(res, result);
 });
-module.exports = { create, update, changeStatus, remove };
+module.exports = { list, get, create, update, changeStatus, remove };

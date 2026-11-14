@@ -11,6 +11,34 @@ async function findById(id, { includeDeleted = false } = {}) {
   );
   return rows[0] || null;
 }
+async function listAll({ limit, offset, q, status }) {
+  const where = ["deleted_at IS NULL"];
+  const params = [];
+  if (status) { where.push("status = ?"); params.push(status); }
+  if (q) {
+    const term = `%${q}%`;
+    where.push("(title LIKE ? OR destination LIKE ? OR slug LIKE ?)");
+    params.push(term, term, term);
+  }
+  const clause = `WHERE ${where.join(" AND ")}`;
+  const [[count]] = await pool.execute(`SELECT COUNT(*) AS total FROM tours ${clause}`, params);
+  const [rows] = await pool.execute(
+    `SELECT id, slug, title, destination, duration_days, base_price, currency_code, status, updated_at
+       FROM tours ${clause} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`,
+    [...params, limit, offset],
+  );
+  return { rows, total: Number(count.total) };
+}
+async function syncDestination(id) {
+  await pool.execute(
+    `UPDATE tours t
+       LEFT JOIN destinations d
+         ON LOWER(TRIM(d.name)) COLLATE utf8mb4_unicode_ci = LOWER(TRIM(t.destination)) COLLATE utf8mb4_unicode_ci
+        SET t.destination_id = d.id
+      WHERE t.id = ?`,
+    [id],
+  );
+}
 async function findBySlug(slug) {
   const [rows] = await pool.execute("SELECT id FROM tours WHERE slug = ? LIMIT 1", [slug]);
   return rows[0] || null;
@@ -49,4 +77,4 @@ async function softDelete(id, actorId) {
   );
   return result.affectedRows > 0;
 }
-module.exports = { findById, findBySlug, create, update, updateStatus, softDelete };
+module.exports = { findById, findBySlug, create, update, updateStatus, softDelete, listAll, syncDestination };

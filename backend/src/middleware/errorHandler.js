@@ -14,6 +14,9 @@ function mapKnownError(error) {
   if (error.type === "entity.too.large") {
     return new AppError(413, "PAYLOAD_TOO_LARGE", "Request body is too large.");
   }
+  if (Number.isInteger(error.statusCode) && error.statusCode >= 400 && error.statusCode <= 599) {
+    return new AppError(error.statusCode, error.code || "REQUEST_ERROR", error.message);
+  }
 
   // CHECK constraint failures. Match by error NUMBER, not name: the mysql2 driver
   // only knows MySQL's error table, so MariaDB's 4025 arrives with a wrong name.

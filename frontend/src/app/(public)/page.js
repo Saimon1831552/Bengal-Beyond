@@ -16,6 +16,7 @@ import Trending from "@/components/landing/Trending";
 import Blogs from "@/components/landing/Blogs";
 import Heritage from "@/components/landing/Heritage";
 import Gallery from "@/components/landing/Gallery";
+import DepthScene from "@/components/landing/DepthScene";
 
 export const metadata = buildMetadata({
   title: { absolute: `${siteConfig.name} | Bangladesh Tours & Travel Experiences` },
@@ -35,6 +36,7 @@ export default async function HomePage() {
     <main>
       <Hero destinations={destinations} />
       <About />
+      <DepthScene />
       <WhyChoose />
       <HolidayTours tours={holiday} />
       <ShortTours tours={short} />

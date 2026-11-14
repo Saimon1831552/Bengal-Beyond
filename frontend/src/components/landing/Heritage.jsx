@@ -24,7 +24,7 @@ export default function Heritage() {
   }, []);
 
   return (
-    <section ref={root} className="bg-primary-dark py-24" style={{ perspective: "1400px" }}>
+    <section ref={root} className="bg-brand py-24" style={{ perspective: "1400px" }}>
       <Container>
         <SectionHeader light eyebrow="Heritage" title="Top 10 heritage places in Bangladesh" subtitle="Scroll to stack through ancient ruins, mosques, forts and forests." />
         {PLACES.map((p, i) => (

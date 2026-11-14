@@ -29,9 +29,11 @@ export default async function TourPage({ params }) {
       <p>{t.days} days · {t.category}</p>
       <p>{t.summary}</p>
       {t.destinations.length > 0 && (
-        <p>Destinations: {t.destinations.map((s) => <Link key={s} href={`/destinations/${s}`}>{s.replace(/-/g, " ")} </Link>)}</p>
+        <p>Destinations: {t.destinations.map((s) => <Link className="link-underline" key={s} href={`/destinations/${s}`}>{s.replace(/-/g, " ")} </Link>)}</p>
       )}
-      <Link href={`/booking?tour=${t.slug}`} rel="nofollow">Book this tour</Link>
+      <Link href={`/booking?tour=${t.slug}`} className="btn-gold mt-6 inline-block rounded-full px-8 py-3 font-semibold">
+        Book this tour
+      </Link>
       <JsonLd data={tourJsonLd(t)} />
     </main>
   );

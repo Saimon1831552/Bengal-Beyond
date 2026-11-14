@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Container from "@/components/ui/Container";
 import Magnetic from "@/components/fx/Magnetic";
+import AuthMenu from "./AuthMenu";
 import { siteConfig } from "@/config/site";
 
 const links = [
@@ -54,11 +55,12 @@ export default function Navbar() {
                 {l.label}
               </Link>
             ))}
-            <Link href="/sign-in" rel="nofollow" className={`text-sm font-medium ${tone}`}>Sign in</Link>
+            <AuthMenu tone={tone} />
             <Magnetic>
               <Link
                 href="/tours"
-                className="inline-flex rounded-full bg-gold px-6 py-2.5 text-sm font-semibold text-primary-dark shadow-[0_0_22px_rgba(214,168,95,.55)] transition-shadow hover:shadow-[0_0_38px_rgba(214,168,95,.95)]"
+                data-burst
+                className="inline-flex rounded-full btn-gold px-6 py-2.5 text-sm font-semibold"
               >
                 Book Now
               </Link>
@@ -82,12 +84,13 @@ export default function Navbar() {
         {open && (
           <nav id="mobile-menu" aria-label="Mobile" className="border-t border-border bg-white md:hidden">
             <Container className="flex flex-col gap-1 py-3">
-              {[...links, { href: "/sign-in", label: "Sign in" }].map((l) => (
+              {links.map((l) => (
                 <Link key={l.href} href={l.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 font-medium text-primary hover:bg-primary/10">
                   {l.label}
                 </Link>
               ))}
-              <Link href="/tours" onClick={() => setOpen(false)} className="mt-2 rounded-full bg-gold px-5 py-3 text-center font-semibold text-primary-dark">
+              <div className="px-3 py-2"><AuthMenu onNavigate={() => setOpen(false)} /></div>
+              <Link href="/tours" data-burst onClick={() => setOpen(false)} className="mt-2 flex w-full justify-center rounded-full btn-gold px-6 py-2.5 text-sm font-semibold">
                 Book Now
               </Link>
             </Container>

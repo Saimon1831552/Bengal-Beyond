@@ -1,20 +1,28 @@
 @import "tailwindcss";
 
 :root {
-  --background: #F8F7F2;
-  --foreground: #1A1F1D;
-  --primary: #123D32;
-  --primary-dark: #0B2A22;
-  --accent: #16856A;
-  --gold: #D6A85F;
-  --sand: #E8D8B9;
-  --muted: #5B6661;
-  --border: #E3E0D5;
-  --terracotta: #C8643C;
-  --ocean: #1F6FA8;
+  --background: #FAF8F3;
+  --foreground: #14201C;
+  --primary: #0E4D3A;
+  --primary-dark: #082B21;
+  --accent: #1B9C7B;
+  --gold: #E8A93C;
+  --sand: #F0E3C8;
+  --muted: #5E6B66;
+  --border: #E6E1D3;
+  --terracotta: #D2693F;
+  --ocean: #1C7CB5;
+
+  /* gradients */
+  --grad-brand: linear-gradient(135deg, #082B21 0%, #0E4D3A 55%, #1B9C7B 100%);
+  --grad-warm: linear-gradient(135deg, #E8A93C 0%, #D2693F 100%);
+  --grad-sea: linear-gradient(135deg, #0E4D3A 0%, #1C7CB5 100%);
+
+  /* motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* Tailwind v4: expose tokens as utilities (bg-primary, text-gold, font-display ...) */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -25,59 +33,160 @@
   --color-sand: var(--sand);
   --color-muted: var(--muted);
   --color-border: var(--border);
-
-  --font-display: var(--font-display), Georgia, serif;
-  --font-sans: var(--font-body), system-ui, sans-serif;
   --color-terracotta: var(--terracotta);
   --color-ocean: var(--ocean);
+
+  /* mapped to the next/font variables set in layout.js (renamed, see below) */
+  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-sans: var(--font-manrope), system-ui, sans-serif;
 }
 
 @layer base {
+  html { scroll-padding-top: 5rem; }
+
   body {
     background: var(--background);
     color: var(--foreground);
-    font-family: var(--font-body), system-ui, sans-serif;
+    font-family: var(--font-manrope), system-ui, sans-serif;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
+    animation: page-in 0.6s var(--ease-out) both;
   }
-  h1, h2, h3, h4 { font-family: var(--font-display), Georgia, serif; line-height: 1.15; }
-  a { color: inherit; }
-  :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-fraunces), Georgia, serif;
+    line-height: 1.12;
+    letter-spacing: -0.01em;
+    color: var(--primary); /* layered, so text-white / text-gold utilities override it */
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+    transition: color 0.25s var(--ease-out);
+  }
+
+  ::selection { background: var(--gold); color: var(--primary-dark); }
+
+  :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 4px; }
 }
 
-.skip-link { position: absolute; left: -9999px; top: 0; background: var(--primary); color: #fff; padding: .75rem 1rem; z-index: 100; }
-.skip-link:focus { left: 0; }
+@layer components {
+  /* gradient text */
+  .text-gradient {
+    background: var(--grad-warm);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-body), system-ui, sans-serif;
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
+  /* frosted glass */
+  .glass {
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    backdrop-filter: blur(18px) saturate(140%);
+  }
+
+  /* gold CTA with glow + shine sweep */
+  .btn-gold {
+    position: relative;
+    overflow: hidden;
+    background: var(--grad-warm);
+    color: var(--primary-dark);
+    box-shadow: 0 8px 26px -6px rgba(232, 169, 60, 0.7);
+    transition: transform 0.35s var(--ease-spring), box-shadow 0.35s var(--ease-out);
+  }
+  .btn-gold::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.55) 50%, transparent 70%);
+    transform: translateX(-120%);
+    transition: transform 0.8s var(--ease-out);
+  }
+  .btn-gold:hover { transform: translateY(-2px); box-shadow: 0 14px 38px -6px rgba(232, 169, 60, 0.95); }
+  .btn-gold:hover::after { transform: translateX(120%); }
+
+  /* animated underline link */
+  .link-underline {
+    background: linear-gradient(currentColor, currentColor) 0 100% / 0 1px no-repeat;
+    transition: background-size 0.4s var(--ease-out), color 0.25s;
+  }
+  .link-underline:hover { background-size: 100% 1px; }
+
+  /* lift card */
+  .lift {
+    transition: transform 0.4s var(--ease-out), box-shadow 0.4s var(--ease-out), border-color 0.3s;
+  }
+  .lift:hover {
+    transform: translateY(-6px);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    box-shadow: 0 24px 44px -18px rgba(14, 77, 58, 0.4);
+  }
+
+  .skip-link {
+    position: absolute; left: -9999px; top: 0; z-index: 100;
+    background: var(--primary); color: #fff; padding: .75rem 1rem;
+  }
+  .skip-link:focus { left: 0; }
 }
 
-h1, h2, h3, h4 {
-  font-family: var(--font-display), Georgia, serif;
-  color: var(--primary);
-  line-height: 1.15;
+/* section background helpers */
+.bg-brand { background: var(--grad-brand); }
+.bg-sea { background: var(--grad-sea); }
+
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
 }
 
-a { color: var(--accent); }
-a:hover { color: var(--primary); }
-
-/* Used by the "Skip to content" link in layout.js */
-.skip-link {
-  position: absolute;
-  left: -9999px;
-  top: 0;
-  background: var(--primary);
-  color: #fff;
-  padding: 0.75rem 1rem;
-  z-index: 100;
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-10px); }
 }
-.skip-link:focus { left: 0; }
+.animate-float { animation: float 4s ease-in-out infinite; }
 
-:focus-visible {
-  outline: 2px solid var(--gold);
-  outline-offset: 2px;
+/* slim branded scrollbar */
+html { scrollbar-width: thin; scrollbar-color: var(--accent) var(--background); }
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: var(--background); }
+::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 8px; border: 2px solid var(--background); }
+
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
 }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ---------- layered glass ---------- */
+@layer components {
+  .glass-deep {
+    position: relative;
+    background: linear-gradient(135deg, rgba(255,255,255,.3), rgba(255,255,255,.08));
+    border: 1px solid rgba(255,255,255,.38);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,.45),
+                inset 0 1px 0 rgba(255,255,255,.6),
+                inset 0 -1px 0 rgba(255,255,255,.1);
+  }
+  .glass-deep::before {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: radial-gradient(120% 80% at 0% 0%, rgba(255,255,255,.35), transparent 50%);
+  }
+}
+
+/* ---------- custom cursor ---------- */
+.has-cursor, .has-cursor * { cursor: none !important; }
+.has-cursor input, .has-cursor textarea { cursor: text !important; }
+.has-cursor select { cursor: default !important; }
+
+/* ---------- button ripple ---------- */
+.fx-ripple {
+  position: absolute; border-radius: 9999px; pointer-events: none;
+  width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  background: rgba(255,255,255,.65);
+  animation: fx-ripple .7s var(--ease-out) forwards;
+}
+@keyframes fx-ripple { to { transform: scale(26); opacity: 0; } }

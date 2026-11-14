@@ -4,6 +4,7 @@ import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import Container from "@/components/ui/Container";
 import Magnetic from "@/components/fx/Magnetic";
+import { burst } from "@/lib/burst";
 import { siteConfig } from "@/config/site";
 
 const columns = [
@@ -23,11 +24,13 @@ function Newsletter() {
   const [state, setState] = useState("idle"); // idle | loading | done
 
   const submit = async (e) => {
+    const b = e.currentTarget.querySelector("button").getBoundingClientRect();
     e.preventDefault();
     setState("loading");
     // TODO: POST to a real newsletter endpoint. This only simulates success.
     await new Promise((r) => setTimeout(r, 900));
     setState("done");
+    burst(b.left + b.width / 2, b.top + b.height / 2, 28);
     setEmail("");
   };
 
@@ -52,12 +55,12 @@ function Newsletter() {
 export default function Footer() {
   const { contact, social } = siteConfig;
   return (
-    <footer className="mt-20 bg-primary-dark text-sand">
+    <footer className="mt-20 bg-brand text-sand">
       <Container className="py-20 text-center">
         <h2 className="mx-auto max-w-2xl text-4xl font-semibold text-white md:text-5xl">Ready for your next adventure?</h2>
         <div className="mt-8">
           <Magnetic>
-            <Link href="/tours" className="inline-flex rounded-full bg-gold px-9 py-4 text-base font-semibold text-primary-dark shadow-[0_0_30px_rgba(214,168,95,.55)] transition-shadow hover:shadow-[0_0_50px_rgba(214,168,95,.95)]">
+            <Link href="/tours" data-burst className="inline-flex rounded-full btn-gold px-6 py-2.5 text-sm font-semibold">
               Start Your Journey
             </Link>
           </Magnetic>
@@ -89,7 +92,7 @@ export default function Footer() {
               <p className="text-sm font-semibold uppercase tracking-widest text-gold">{c.title}</p>
               <ul className="mt-4 space-y-2">
                 {c.links.map(([href, label]) => (
-                  <li key={href}><Link href={href} className="text-sm text-sand/90 transition-colors hover:text-white">{label}</Link></li>
+                  <li key={href}><Link href={href} className="link-underline text-sm text-sand/90 hover:text-white">{label}</Link></li>
                 ))}
               </ul>
             </nav>

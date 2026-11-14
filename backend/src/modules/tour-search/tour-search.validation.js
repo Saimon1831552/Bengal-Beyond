@@ -25,6 +25,7 @@ function moneyQuery(value, name) {
 function parseSearchQuery(query) {
   const page = intQuery(query.page, "page", { min: 1, max: 100000, optional: true }) || 1;
   const limit = intQuery(query.limit, "limit", { min: 1, max: 50, optional: true }) || 12;
+  const guests = intQuery(query.guests, "guests", { min: 1, max: 20 });
   const minDuration = intQuery(query.minDuration, "minDuration", { min: 1, max: 3650 });
   const maxDuration = intQuery(query.maxDuration, "maxDuration", { min: 1, max: 3650 });
   const minPrice = moneyQuery(query.minPrice, "minPrice");
@@ -44,7 +45,7 @@ function parseSearchQuery(query) {
     page, limit, offset: (page - 1) * limit, q, destination, sort,
     destinationId: intQuery(query.destinationId, "destinationId"),
     categoryId: intQuery(query.categoryId, "categoryId"),
-    tagId: intQuery(query.tagId, "tagId"),
+    tagId: intQuery(query.tagId, "tagId"), guests,
     minDuration, maxDuration, minPrice, maxPrice, departureFrom, departureTo,
     availableOnly: query.availableOnly === "true"
   };

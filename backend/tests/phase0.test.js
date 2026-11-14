@@ -143,6 +143,22 @@ test("500 messages are hidden in production, shown in development", () => {
   assert.equal(dev.body.error.message, "secret internals");
 });
 
+test("plain errors with valid status codes preserve their response", () => {
+  const err = Object.assign(new Error("Booking conflict."), { statusCode: 409 });
+  const mapped = mapKnownError(err);
+  assert.equal(mapped.statusCode, 409);
+  assert.equal(mapped.code, "REQUEST_ERROR");
+  assert.equal(mapped.message, "Booking conflict.");
+
+  const body = buildErrorBody(err, { requestId: "r1", isProduction: true });
+  assert.equal(body.status, 409);
+  assert.equal(body.body.error.message, "Booking conflict.");
+
+  for (const statusCode of [399, 600, 409.5]) {
+    assert.equal(mapKnownError(Object.assign(new Error("invalid"), { statusCode })), null);
+  }
+});
+
 test("real database errors map to safe AppErrors", async () => {
   const run = async (sql) => {
     try { await pool.query(sql); } catch (e) { return mapKnownError(e); }

@@ -13,12 +13,12 @@ export default function WhyChoose() {
         <SectionHeader eyebrow="Why Bengal Beyond" title="Why travellers choose us" subtitle="Everything you need for a trip you will actually remember." />
         <Reveal stagger={0.12} className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {WHY.map((w, i) => (
-            <TiltCard key={w.title} className="h-full rounded-3xl border border-border bg-background p-7 shadow-sm">
+            <TiltCard key={w.title} className="lift h-full rounded-3xl border border-border bg-background p-7 shadow-sm">
               <motion.div
                 animate={{ y: [0, -10, 0] }}
                 transition={{ duration: 3 + i * 0.5, repeat: Infinity, ease: "easeInOut" }}
                 style={{ transform: "translateZ(60px)" }}
-                className="grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-accent to-primary text-white shadow-lg"
+                className="grid h-16 w-16 place-items-center rounded-2xl bg-sea text-white shadow-lg"
               >
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={w.icon} /></svg>
               </motion.div>
