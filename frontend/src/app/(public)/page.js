@@ -3,6 +3,8 @@ import { siteConfig } from "@/config/site";
 import { getDestinations, getTours, getPosts } from "@/services/content";
 import { splitTours, trendingDestinations, blogCards } from "@/components/landing/data";
 
+import Reveal from "@/components/Reveal";
+import Hero3DLoader from "@/components/Hero3DLoader";
 import Hero from "@/components/landing/Hero";
 import About from "@/components/landing/About";
 import WhyChoose from "@/components/landing/WhyChoose";
@@ -35,19 +37,20 @@ export default async function HomePage() {
   return (
     <main>
       <Hero destinations={destinations} />
-      <About />
+      <Hero3DLoader />
+      <Reveal><About /></Reveal>
       <DepthScene />
-      <WhyChoose />
-      <HolidayTours tours={holiday} />
-      <ShortTours tours={short} />
-      <DayTours tours={day} />
-      <Stats />
-      <Testimonials />
-      <FeatureShowcase />
-      <Trending destinations={trendingDestinations(destinations)} />
-      <Blogs posts={blogCards(posts)} />
-      <Heritage />
-      <Gallery />
+      <Reveal><WhyChoose /></Reveal>
+      <Reveal><HolidayTours tours={holiday} /></Reveal>
+      <Reveal><ShortTours tours={short} /></Reveal>
+      <Reveal><DayTours tours={day} /></Reveal>
+      <Reveal><Stats /></Reveal>
+      <Reveal><Testimonials /></Reveal>
+      <Reveal><FeatureShowcase /></Reveal>
+      <Reveal><Trending destinations={trendingDestinations(destinations)} /></Reveal>
+      <Reveal><Blogs posts={blogCards(posts)} /></Reveal>
+      <Reveal><Heritage /></Reveal>
+      <Reveal><Gallery /></Reveal>
     </main>
   );
 }

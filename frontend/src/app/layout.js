@@ -3,6 +3,7 @@ import "./globals.css";
 import { siteConfig } from "@/config/site";
 import JsonLd from "@/components/seo/JsonLd";
 import { organizationJsonLd, websiteJsonLd } from "@/lib/jsonld";
+import SmoothScroll from "@/components/SmoothScroll";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import AuthProvider from "@/components/providers/AuthProvider";
@@ -50,17 +51,19 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang={siteConfig.language} className={`${fraunces.variable} ${manrope.variable}`}>
-       <body className="flex min-h-screen flex-col">
-         <AuthProvider>
-           <a href="#main" className="skip-link">Skip to content</a>
-           <Navbar />
-           <div id="main" className="flex-1">{children}</div>
-           <Footer />
-         </AuthProvider>
-         <CustomCursor />
-         <MicroFX />
-         <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
-       </body>
+      <body className="min-h-full flex flex-col">
+        <SmoothScroll>
+          <AuthProvider>
+            <a href="#main" className="skip-link">Skip to content</a>
+            <Navbar />
+            <div id="main" className="flex-1">{children}</div>
+            <Footer />
+          </AuthProvider>
+          <CustomCursor />
+          <MicroFX />
+          <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
+        </SmoothScroll>
+      </body>
     </html>
   );
 }

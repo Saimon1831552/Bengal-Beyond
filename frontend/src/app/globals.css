@@ -42,12 +42,14 @@
 }
 
 @layer base {
-  html { scroll-padding-top: 5rem; }
+  html {
+    scroll-padding-top: 5rem;
+  }
 
   body {
     background: var(--background);
     color: var(--foreground);
-    font-family: var(--font-manrope), system-ui, sans-serif;
+    font-family: var(--font-sans), Arial, Helvetica, sans-serif;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     animation: page-in 0.6s var(--ease-out) both;
@@ -152,13 +154,6 @@ html { scrollbar-width: thin; scrollbar-color: var(--accent) var(--background); 
 ::-webkit-scrollbar-track { background: var(--background); }
 ::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 8px; border: 2px solid var(--background); }
 
-@media (prefers-reduced-motion: no-preference) {
-  html { scroll-behavior: smooth; }
-}
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-}
-
 /* ---------- layered glass ---------- */
 @layer components {
   .glass-deep {
@@ -190,3 +185,11 @@ html { scrollbar-width: thin; scrollbar-color: var(--accent) var(--background); 
   animation: fx-ripple .7s var(--ease-out) forwards;
 }
 @keyframes fx-ripple { to { transform: scale(26); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
