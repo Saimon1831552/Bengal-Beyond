@@ -5,6 +5,7 @@ import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorBox } from "@/components/account/State";
 import { useCan } from "./AdminShell";
+import RefundPanel from "./RefundPanel";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
 import { money, formatDate, formatDateTime, titleCase } from "@/lib/format";
@@ -97,6 +98,8 @@ export default function AdminBookingDetail({ id }) {
           </ul>
         ) : <p className="mt-2 text-sm text-muted">No payment attempts.</p>}
       </section>
+
+      {can("refunds.manage") && <RefundPanel payments={b.payments} bookingStatus={b.booking_status} reload={reload} />}
 
       {manage && (
         <section className="rounded-3xl border border-gold/50 bg-gold/10 p-6">

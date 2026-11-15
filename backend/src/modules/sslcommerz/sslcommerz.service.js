@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const { pool, withTransaction } = require('../../config/db');
 const env = require('../../config/env');
+const { queueBookingEmail } = require('../notifications/booking-events');
 
 const API_BASE = env.SSLCOMMERZ_SANDBOX
   ? 'https://sandbox.sslcommerz.com'
@@ -195,14 +196,19 @@ async function validateAndApply(payload) {
       return { verified: true, risk_hold: true, payment_id: payment.id };
     }
     if (String(verified.status).toUpperCase() === 'VALID' || String(verified.status).toUpperCase() === 'VALIDATED') {
+      const firstTime = payment.status !== 'succeeded';
       await conn.execute(
         "UPDATE payments SET status = 'succeeded', verified_at = UTC_TIMESTAMP(), raw_event = ? WHERE id = ?",
         [JSON.stringify({ validation: verified }), payment.id]
       );
       await conn.execute("UPDATE bookings SET payment_status = 'paid' WHERE id = ?", [payment.booking_id]);
+      if (firstTime) {
+        await queueBookingEmail(conn, payment.booking_id, 'payment_received', { amount: payment.amount });
+      }
       // A payment must not bypass the operator's pending-review decision.
       if (payment.booking_status === 'awaiting_payment') {
         await conn.execute("UPDATE bookings SET booking_status = 'confirmed', confirmed_at = UTC_TIMESTAMP() WHERE id = ?", [payment.booking_id]);
+        await queueBookingEmail(conn, payment.booking_id, 'booking_confirmed');
       }
       return { verified: true, payment_id: payment.id, booking_id: payment.booking_id, payment_status: 'paid' };
     }

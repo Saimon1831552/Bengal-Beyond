@@ -21,4 +21,15 @@ async function sendActionEmail({ to, subject, text }) {
   await getTransporter().sendMail({ from: env.MAIL_FROM, to, subject, text });
 }
 
-module.exports = { sendActionEmail };
+async function sendMail({ to, subject, text }) {
+  if (!env.MAIL_FROM) throw new Error("MAIL_FROM must be configured.");
+  const info = await getTransporter().sendMail({
+    from: env.MAIL_FROM,
+    to,
+    subject: String(subject || "").replace(/[\r\n]+/g, " ").slice(0, 200),
+    text,
+  });
+  return { messageId: info.messageId };
+}
+
+module.exports = { sendActionEmail, sendMail };

@@ -7,6 +7,7 @@ import { money, formatDate } from "@/lib/format";
 
 export default function PaymentList() {
   const { data, error, loading, reload } = useFetch("/customer/payments?limit=20");
+  const refunds = useFetch("/customer/refunds?limit=20");
   return (
     <Container as="main" className="py-8">
       <h1 className="text-3xl text-primary">Payments</h1>
@@ -23,6 +24,19 @@ export default function PaymentList() {
             </div>
           ))}
       </div>
+      {refunds.data?.items?.length > 0 && (
+        <>
+          <h2 className="mt-10 text-xl text-primary">Refunds</h2>
+          <div className="mt-3 space-y-3">
+            {refunds.data.items.map((r) => (
+              <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-white p-5">
+                <div><p className="font-semibold text-primary">{r.booking_reference}</p><p className="text-sm text-muted">{formatDate(r.created_at)}{r.reason ? ` · ${r.reason}` : ""}</p></div>
+                <div className="flex items-center gap-3"><StatusBadge value={r.status} /><span className="font-semibold text-primary">{money(r.amount, r.currency_code)}</span></div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </Container>
   );
 }

@@ -1,4 +1,5 @@
 const { pool, withTransaction } = require('../../config/db');
+const { queueBookingEmail } = require('../notifications/booking-events');
 
 function problem(statusCode, message) {
   const error = new Error(message);
@@ -91,6 +92,9 @@ async function updateRefund(adminId, refundId, status, providerRefundId) {
         WHERE id = ?`, [status, providerRefundId || null, adminId, status, refundId]
     );
     const balance = await refreshPaymentAndBooking(conn, refund.payment_id, refund.booking_id);
+    if (status === 'succeeded') {
+      await queueBookingEmail(conn, refund.booking_id, 'refund_completed', { refund_amount: refund.amount }, `:r${refundId}`);
+    }
     return { id: refundId, payment_id: refund.payment_id, amount: refund.amount, currency_code: refund.currency_code, status, provider_refund_id: providerRefundId || refund.provider_refund_id, ...balance };
   });
 }

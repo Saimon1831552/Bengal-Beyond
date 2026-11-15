@@ -102,6 +102,8 @@ router.use("/tours", require("../modules/tours/tour.routes"));
 
   router.use("/me", require("../modules/rbac/me.routes"));
   
+  router.use("/admin/cancellation-requests", authenticate, authorize("bookings.manage"),
+  require("../modules/cancellations/cancellation.routes"));
 
   
 

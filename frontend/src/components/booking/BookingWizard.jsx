@@ -162,11 +162,16 @@ export default function BookingWizard() {
         <aside className="h-fit space-y-4 rounded-3xl border border-border bg-white p-6 lg:sticky lg:top-24">
           <h2 className="text-xl text-primary">Summary</h2>
           <p className="text-sm text-muted">{dep ? `${formatDate(dep.starts_at)} – ${formatDate(dep.ends_at)}` : "Choose a departure"}</p>
-          <div className="flex justify-between text-sm"><span>{qty} × {money(unit, tour.currency_code)}</span><span>{money(total, tour.currency_code)}</span></div>
-          <div className="flex justify-between border-t border-border pt-3 text-lg font-semibold text-primary"><span>Estimated total</span><span>{money(total, tour.currency_code)}</span></div>
+          {dep ? (
+            <>
+              <div className="flex justify-between text-sm"><span>{qty} × {money(unit, tour.currency_code)}</span><span>{money(total, tour.currency_code)}</span></div>
+              <div className="flex justify-between border-t border-border pt-3 text-lg font-semibold text-primary"><span>Estimated total</span><span>{money(total, tour.currency_code)}</span></div>
+            </>
+          ) : <p className="text-sm text-muted">Select an available departure to see the total.</p>}
           <p className="text-xs text-muted">Seats are held for 15 minutes after you reserve. You can apply a coupon and pay on the next page. The final total is calculated by our server.</p>
           {error && <p role="alert" className="text-sm text-terracotta">{error}</p>}
-          <button disabled={busy || !deps.length} className="btn-gold w-full rounded-full px-6 py-3 font-semibold disabled:opacity-60">{busy ? "Reserving…" : "Reserve seats"}</button>
+          {!deps.length && <p role="status" className="text-sm text-terracotta">No upcoming departures with seats are available, so you can’t reserve this tour right now. Please contact us or check back later.</p>}
+          <button disabled={busy || !deps.length} className="btn-gold w-full rounded-full px-6 py-3 font-semibold disabled:opacity-60">{busy ? "Reserving…" : deps.length ? "Reserve seats" : "No departures available"}</button>
         </aside>
       </form>
     </Container>

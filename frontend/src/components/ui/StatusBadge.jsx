@@ -1,9 +1,11 @@
 import { titleCase } from "@/lib/format";
 
 const tone = {
-  confirmed: "bg-accent/15 text-primary", paid: "bg-accent/15 text-primary", succeeded: "bg-accent/15 text-primary", completed: "bg-accent/15 text-primary",
+  approved: "bg-accent/15 text-primary", confirmed: "bg-accent/15 text-primary", paid: "bg-accent/15 text-primary", succeeded: "bg-accent/15 text-primary", completed: "bg-accent/15 text-primary",
   published: "bg-accent/15 text-primary", scheduled: "bg-accent/15 text-primary",
   pending: "bg-gold/20 text-primary-dark", pending_review: "bg-gold/20 text-primary-dark", awaiting_payment: "bg-gold/20 text-primary-dark", initiated: "bg-gold/20 text-primary-dark", unpaid: "bg-gold/20 text-primary-dark",
+  requested: "bg-gold/20 text-primary-dark", cancellation_requested: "bg-gold/20 text-primary-dark",
+  refunded: "bg-ocean/15 text-ocean", partially_refunded: "bg-ocean/15 text-ocean",
   draft: "bg-gold/20 text-primary-dark", unpublished: "bg-gold/20 text-primary-dark",
   failed: "bg-terracotta/15 text-terracotta", rejected: "bg-terracotta/15 text-terracotta", cancelled: "bg-terracotta/15 text-terracotta", expired: "bg-terracotta/15 text-terracotta",
   sold_out: "bg-terracotta/15 text-terracotta",

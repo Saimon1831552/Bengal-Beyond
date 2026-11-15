@@ -6,6 +6,7 @@ import { Loading, ErrorBox } from "./State";
 import useFetch from "@/hooks/useFetch";
 import { money, formatDate, titleCase } from "@/lib/format";
 import PayPanel from "./PayPanel";
+import CancelRequest from "./CancelRequest";
 
 const snap = (v) => { try { return typeof v === "string" ? JSON.parse(v) : v || {}; } catch { return {}; } };
 
@@ -14,7 +15,7 @@ export default function BookingDetail({ id }) {
   if (loading) return <Container className="py-8"><Loading /></Container>;
   if (error) return <Container className="py-8"><ErrorBox error={error} onRetry={reload} /></Container>;
 
-  const { booking: b, items, travelers } = data;
+  const { booking: b, items, travelers, change_requests, notes } = data;
   return (
     <Container as="main" className="py-8">
       <Link href="/bookings" className="text-sm text-accent link-underline">← All bookings</Link>
@@ -51,6 +52,14 @@ export default function BookingDetail({ id }) {
         {Number(b.tax_amount) > 0 && <div className="flex justify-between"><span>Tax</span><span>{money(b.tax_amount, b.currency_code)}</span></div>}
         <div className="flex justify-between border-t border-border pt-2 text-lg font-semibold text-primary"><span>Total</span><span>{money(b.total_amount, b.currency_code)}</span></div>
       </section>
+
+      <CancelRequest booking={b} requests={change_requests} reload={reload} />
+      {notes.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-xl text-primary">Messages from our team</h2>
+          <ul className="mt-3 space-y-2">{notes.map((n) => <li key={n.id} className="rounded-xl bg-white p-4 text-sm"><span className="text-muted">{formatDate(n.created_at)}</span><br />{n.note}</li>)}</ul>
+        </section>
+      )}
     </Container>
   );
 }

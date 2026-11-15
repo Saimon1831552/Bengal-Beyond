@@ -6,6 +6,9 @@ const smsProvider = require("./providers/sms.provider");
 
 async function claimOne() {
   return withTransaction(async (conn) => {
+    await conn.execute(
+      `UPDATE notification_jobs SET status = 'queued', locked_at = NULL
+        WHERE status = 'processing' AND locked_at < DATE_SUB(NOW(), INTERVAL 10 MINUTE)`);
     const [rows] = await conn.execute(
       `SELECT * FROM notification_jobs
         WHERE status = 'queued' AND available_at <= NOW() AND attempts < max_attempts

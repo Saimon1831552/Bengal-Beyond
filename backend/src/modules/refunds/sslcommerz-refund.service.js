@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const { pool, withTransaction } = require('../../config/db');
 const env = require('../../config/env');
+const { queueBookingEmail } = require('../notifications/booking-events');
 
 const API_BASE = env.SSLCOMMERZ_SANDBOX === false
   ? 'https://securepay.sslcommerz.com'
@@ -180,6 +181,9 @@ async function reconcile(adminId, refundId) {
         WHERE id = ?`,
       [nextStatus, JSON.stringify(result), adminId, nextStatus, refundId]
     );
+    if (nextStatus === 'succeeded') {
+      await queueBookingEmail(conn, current.booking_id, 'refund_completed', { refund_amount: current.amount }, `:r${refundId}`);
+    }
 
     const [[payment]] = await conn.execute(
       'SELECT amount, status FROM payments WHERE id = ? FOR UPDATE', [current.payment_id]

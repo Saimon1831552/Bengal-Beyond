@@ -9,8 +9,11 @@ import useFetch from "@/hooks/useFetch";
 const NAV = [
   { href: "/admin", label: "Dashboard", perm: "dashboard.read", exact: true },
   { href: "/admin/bookings", label: "Bookings", perm: "bookings.read" },
+  { href: "/admin/cancellations", label: "Cancellations", perm: "bookings.manage" },
   { href: "/admin/tours", label: "Tours", perm: "tours.manage" },
   { href: "/admin/payments", label: "Payments", perm: "payments.read" },
+  { href: "/admin/refunds", label: "Refunds", perm: "refunds.manage" },
+  { href: "/admin/emails", label: "Emails", perm: "settings.manage" },
 ];
 
 const Ctx = createContext([]);

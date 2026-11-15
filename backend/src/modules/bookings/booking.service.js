@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const db = require("../../config/db");
+const { queueBookingEmail } = require("../notifications/booking-events");
 
 function holdMinutes() {
   const n = Number.parseInt(process.env.BOOKING_HOLD_MINUTES, 10);
@@ -172,6 +173,7 @@ async function createBooking(payload) {
        VALUES (?, NULL, 'pending_review', ?, 'Booking created')`,
       [bookingId, payload.userId]
     );
+    await queueBookingEmail(connection, bookingId, "booking_received", { hold_minutes: String(minutes) });
     await connection.query(
       `UPDATE booking_idempotency_keys SET booking_id = ?
         WHERE user_id = ? AND idempotency_key = ?`,

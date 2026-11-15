@@ -1,4 +1,6 @@
 const { pool, withTransaction } = require("../../config/db");
+const { releaseCoupon } = require("../booking-pricing/pricing.service");
+const { queueBookingEmail } = require("../notifications/booking-events");
 
 async function list(filters) {
   const where = [];
@@ -65,6 +67,25 @@ async function updateStatus(id, nextStatus, adminId, note) {
     await conn.execute(
       "INSERT INTO booking_status_history (booking_id, previous_status, new_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)",
       [id, booking.booking_status, nextStatus, adminId || null, note || null]);
+    if (["cancelled", "rejected", "expired"].includes(nextStatus)) {
+      const [[conv]] = await conn.execute(
+        "SELECT COUNT(*) AS c FROM seat_holds WHERE booking_id = ? AND hold_status = 'converted'", [id]);
+      if (Number(conv.c) > 0) {
+        await conn.execute(
+          `UPDATE tour_departures d JOIN booking_items bi ON bi.departure_id = d.id
+              SET d.seats_reserved = GREATEST(d.seats_reserved - bi.quantity, 0)
+            WHERE bi.booking_id = ?`, [id]);
+      }
+      await conn.execute(
+        "UPDATE seat_holds SET hold_status = 'released' WHERE booking_id = ? AND hold_status IN ('active','converted')", [id]);
+      await releaseCoupon(conn, id);
+    }
+    const mail = {
+      confirmed: "booking_confirmed",
+      cancelled: "booking_cancelled",
+      rejected: "booking_rejected",
+    }[nextStatus];
+    if (mail) await queueBookingEmail(conn, id, mail);
     return { updated: result.affectedRows === 1, status: nextStatus };
   });
 }

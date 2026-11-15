@@ -68,7 +68,17 @@ async function getBooking(userId, bookingId) {
       ORDER BY id`,
     [bookingId]
   );
-  return { booking, items, travelers, active_seat_holds: holds };
+  const [change_requests] = await pool.execute(
+    `SELECT id, status, request_details, created_at, reviewed_at
+       FROM booking_change_requests WHERE booking_id = ? ORDER BY id DESC`,
+    [bookingId]
+  );
+  const [notes] = await pool.execute(
+    `SELECT id, note, created_at FROM booking_notes
+      WHERE booking_id = ? AND visibility = 'customer_visible' ORDER BY id DESC`,
+    [bookingId]
+  );
+  return { booking, items, travelers, active_seat_holds: holds, change_requests, notes };
 }
 
 async function replaceTravelers(userId, bookingId, body) {
