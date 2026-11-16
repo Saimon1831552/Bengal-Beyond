@@ -24,7 +24,7 @@ export default function Hero({ destinations = [] }) {
   const mx = useMotionValue(0), my = useMotionValue(0);
   const sx = useSpring(mx, { stiffness: 40, damping: 18 });
   const sy = useSpring(my, { stiffness: 40, damping: 18 });
-  const [form, setForm] = useState({ destination: "", date: "", guests: "2" });
+  const [form, setForm] = useState({ destination: "", date: "", guests: "" });
   const photo = img(1, 1800);
 
   const submit = (e) => {
@@ -35,7 +35,7 @@ export default function Hero({ destinations = [] }) {
       p.set("departureFrom", form.date);
       p.set("departureTo", form.date);
     }
-    p.set("guests", form.guests);
+    if (form.guests) p.set("guests", form.guests);
     router.push(`/tours?${p.toString()}`);
   };
 
@@ -90,6 +90,7 @@ export default function Hero({ destinations = [] }) {
           </label>
           <label className="text-xs font-semibold uppercase tracking-wide text-primary">Guests
             <select className={`mt-1 ${field}`} value={form.guests} onChange={(e) => setForm({ ...form, guests: e.target.value })}>
+              <option value="">Any</option>
               {Array.from({ length: 10 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} {i ? "guests" : "guest"}</option>)}
             </select>
           </label>

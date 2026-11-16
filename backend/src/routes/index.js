@@ -14,7 +14,7 @@ router.use("/health", require("./Health.routes"));
 
 // Phase 1 onwards, e.g.:
  router.use("/auth", require("../modules/auth/auth.routes"));
-router.use("/tours", require("../modules/tour-search/tour-search.routes"));
+router.use("/tours", require("../modules/tour-search/tour-search.routes")); // must come first
 router.use("/tours", require("../modules/tours/tour.routes"));
  router.use("/admin/tours", require("../modules/tours/admin-tour.routes"));
  router.use("/admin/departures", require("../modules/departures/admin-departure.routes"));

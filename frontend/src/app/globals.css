@@ -13,6 +13,25 @@
   --terracotta: #D2693F;
   --ocean: #1C7CB5;
 
+  --canvas: #f2f5f4;
+  --surface: #ffffff;
+  --ink: #12211f;
+  --ink-soft: #50635f;
+  --line: #dde5e2;
+  --mangrove: #0d2b27;
+  --mangrove-2: #143a35;
+  --mangrove-line: #1f4a44;
+  --teal: #126b5c;
+  --teal-soft: #dff0ec;
+  --saffron: #c98412;
+  --saffron-soft: #fbefd5;
+  --rose: #b4362d;
+  --rose-soft: #fbe3e0;
+  --sky: #2a6fa8;
+  --sky-soft: #e0edf8;
+  --violet: #6a4fb3;
+  --violet-soft: #ece7f8;
+
   /* gradients */
   --grad-brand: linear-gradient(135deg, #082B21 0%, #0E4D3A 55%, #1B9C7B 100%);
   --grad-warm: linear-gradient(135deg, #E8A93C 0%, #D2693F 100%);
@@ -35,10 +54,29 @@
   --color-border: var(--border);
   --color-terracotta: var(--terracotta);
   --color-ocean: var(--ocean);
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-line: var(--line);
+  --color-mangrove: var(--mangrove);
+  --color-mangrove-2: var(--mangrove-2);
+  --color-mangrove-line: var(--mangrove-line);
+  --color-teal: var(--teal);
+  --color-teal-soft: var(--teal-soft);
+  --color-saffron: var(--saffron);
+  --color-saffron-soft: var(--saffron-soft);
+  --color-rose: var(--rose);
+  --color-rose-soft: var(--rose-soft);
+  --color-sky: var(--sky);
+  --color-sky-soft: var(--sky-soft);
+  --color-violet: var(--violet);
+  --color-violet-soft: var(--violet-soft);
 
   /* mapped to the next/font variables set in layout.js (renamed, see below) */
   --font-display: var(--font-fraunces), Georgia, serif;
   --font-sans: var(--font-manrope), system-ui, sans-serif;
+  --font-ui: var(--font-manrope), system-ui, sans-serif;
 }
 
 @layer base {
@@ -137,9 +175,23 @@
 .bg-brand { background: var(--grad-brand); }
 .bg-sea { background: var(--grad-sea); }
 
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mangrove-line) transparent;
+}
+
 @keyframes page-in {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }
+}
+
+@keyframes seat-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.seat-fill {
+  transform-origin: left;
+  animation: seat-fill 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 @keyframes float {
@@ -147,6 +199,27 @@
   50%      { transform: translateY(-10px); }
 }
 .animate-float { animation: float 4s ease-in-out infinite; }
+
+@layer components {
+  .glass-deep {
+    position: relative;
+    background: linear-gradient(135deg, rgba(255,255,255,.3), rgba(255,255,255,.08));
+    border: 1px solid rgba(255,255,255,.38);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,.45),
+                inset 0 1px 0 rgba(255,255,255,.6),
+                inset 0 -1px 0 rgba(255,255,255,.1);
+  }
+  .glass-deep::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: radial-gradient(120% 80% at 0% 0%, rgba(255,255,255,.35), transparent 50%);
+  }
+}
 
 /* slim branded scrollbar */
 html { scrollbar-width: thin; scrollbar-color: var(--accent) var(--background); }

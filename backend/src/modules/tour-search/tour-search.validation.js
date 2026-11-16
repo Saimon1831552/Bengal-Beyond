@@ -35,6 +35,7 @@ function parseSearchQuery(query) {
   const departureFrom = dateQuery(query.departureFrom, "departureFrom");
   const departureTo = dateQuery(query.departureTo, "departureTo");
   if (departureFrom && departureTo && departureFrom > departureTo) bad("departureFrom cannot be after departureTo");
+  const minSeats = intQuery(query.minSeats, "minSeats", { min: 1, max: 100 });
   const sort = query.sort || "recommended";
   if (!ALLOWED_SORTS.has(sort)) bad(`sort must be one of: ${[...ALLOWED_SORTS].join(", ")}`);
   const q = String(query.q || "").trim();
@@ -45,7 +46,7 @@ function parseSearchQuery(query) {
     page, limit, offset: (page - 1) * limit, q, destination, sort,
     destinationId: intQuery(query.destinationId, "destinationId"),
     categoryId: intQuery(query.categoryId, "categoryId"),
-    tagId: intQuery(query.tagId, "tagId"), guests,
+    tagId: intQuery(query.tagId, "tagId"), guests, minSeats,
     minDuration, maxDuration, minPrice, maxPrice, departureFrom, departureTo,
     availableOnly: query.availableOnly === "true"
   };

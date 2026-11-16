@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import Card from "@/components/ui/Card";
-import { formatPrice } from "@/lib/format";
+import { formatDate, formatPrice } from "@/lib/format";
 
 export default function TourCard({ tour }) {
   const price = formatPrice(tour.price, tour.currency);
@@ -32,6 +32,9 @@ export default function TourCard({ tour }) {
           <span>{tour.days} {tour.days === 1 ? "day" : "days"}</span>
           {price && <span>From {price}</span>}
         </div>
+        {tour.nextDeparture && (
+          <p className="mt-2 text-xs font-medium text-accent">Next departure {formatDate(tour.nextDeparture)}</p>
+        )}
       </div>
     </Card>
   );

@@ -18,6 +18,15 @@ async function api(path) {
   return json.data;
 }
 
+async function apiRaw(path, revalidate = 60) {
+  const res = await fetch(`${API}${path}`, {
+    headers: { Accept: "application/json" },
+    next: { revalidate },
+  });
+  if (!res.ok) throw new Error(`API ${res.status} for ${path}`);
+  return res.json();
+}
+
 /* ---------- mappers: API row -> page shape ---------- */
 
 function mapDestination(r) {
@@ -51,6 +60,18 @@ function mapTour(r, destinationSlugs = []) {
     price: r.base_price != null ? Number(r.base_price) : undefined,
     currency: r.currency_code,
     updatedAt: r.updated_at,
+  };
+}
+
+function mapSearchTour(r) {
+  const base = mapTour(r);
+  const cats = r.categories ? String(r.categories).split(", ") : [];
+  const override = r.lowest_departure_price != null ? Number(r.lowest_departure_price) : null;
+  return {
+    ...base,
+    category: cats[0] || r.destination,
+    nextDeparture: r.next_departure || null,
+    price: override != null && base.price != null ? Math.min(base.price, override) : base.price,
   };
 }
 
@@ -93,19 +114,17 @@ export async function getTours() {
   return (data ?? []).map((r) => mapTour(r));
 }
 
-export async function searchTours(filters) {
-  const query = new URLSearchParams();
-  for (const key of ["destinationId", "departureFrom", "departureTo", "guests"]) {
-    if (filters[key]) query.set(key, filters[key]);
-  }
-  const path = `/tours/search?${query.toString()}`;
-  const res = await fetch(`${API}${path}`, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`API ${res.status} for ${path}`);
-  const json = await res.json();
-  return (json.data ?? []).map((r) => mapTour(r));
+export async function searchTours(query) {
+  const json = await apiRaw(`/tours/search?${query}`);
+  return {
+    items: (json.data ?? []).map(mapSearchTour),
+    meta: json.meta ?? { page: 1, limit: 12, total: 0, totalPages: 1 },
+  };
+}
+
+export async function getCategories() {
+  const json = await apiRaw("/categories", 3600);
+  return json.data ?? [];
 }
 
 export async function getTour(slug) {
