@@ -1,12 +1,14 @@
 "use client";
 import Link from "next/link";
-import Image from "next/image";
+import Image from "@/components/ui/RemoteImage";
 import Container from "@/components/ui/Container";
 import ClipReveal from "@/components/fx/ClipReveal";
 import Reveal from "@/components/fx/Reveal";
 import SectionHeader from "./SectionHeader";
 
 export default function Blogs({ posts }) {
+  if (!posts.length) return null;
+
   return (
     <section className="py-24">
       <Container>
@@ -17,7 +19,7 @@ export default function Blogs({ posts }) {
               <ClipReveal className="relative aspect-[4/3]" delay={i * 0.12}>
                 <Image src={p.image} alt="" fill sizes="(min-width:768px) 33vw, 100vw" className="object-cover transition-transform duration-700 group-hover:scale-105" />
               </ClipReveal>
-              <p className="mt-4 text-xs font-semibold uppercase tracking-widest text-terracotta">{p.read} min read</p>
+              {p.read && <p className="mt-4 text-xs font-semibold uppercase tracking-widest text-terracotta">{p.read} min read</p>}
               <h3 className="mt-2 text-xl font-semibold text-primary">{p.title}</h3>
               <p className="mt-2 line-clamp-2 text-sm text-muted">{p.excerpt}</p>
               <span className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary">

@@ -1,11 +1,15 @@
 "use client";
 import { useEffect, useRef } from "react";
 import { gsap } from "@/lib/gsap";
+import { usePathname } from "next/navigation";
+import { isAppRoute } from "@/lib/access";
 
 export default function CustomCursor() {
   const dot = useRef(null), ring = useRef(null), label = useRef(null);
+  const pathname = usePathname();
 
   useEffect(() => {
+    if (isAppRoute(pathname)) return;
     if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
     document.documentElement.classList.add("has-cursor");
 
@@ -61,7 +65,7 @@ export default function CustomCursor() {
       document.removeEventListener("pointerdown", down);
       document.removeEventListener("pointerout", out);
     };
-  }, []);
+  }, [pathname]);
 
   return (
     <>

@@ -1,10 +1,8 @@
 import { buildMetadata } from "@/lib/seo";
 import { siteConfig } from "@/config/site";
-import { getDestinations, getTours, getPosts } from "@/services/content";
+import { getDestinations, getTours, getPosts, getGallery, getHighlights } from "@/services/content";
 import { splitTours, trendingDestinations, blogCards } from "@/components/landing/data";
 
-import Reveal from "@/components/Reveal";
-import Hero3DLoader from "@/components/Hero3DLoader";
 import Hero from "@/components/landing/Hero";
 import About from "@/components/landing/About";
 import WhyChoose from "@/components/landing/WhyChoose";
@@ -31,26 +29,34 @@ export const revalidate = 3600;
 const safe = async (fn) => { try { return await fn(); } catch { return []; } };
 
 export default async function HomePage() {
-  const [destinations, tours, posts] = await Promise.all([safe(getDestinations), safe(getTours), safe(getPosts)]);
+  const [destinations, tours, posts, gallery, hl] = await Promise.all([
+    safe(getDestinations), safe(getTours), safe(getPosts), getGallery(9), getHighlights(),
+  ]);
   const { holiday, short, day } = splitTours(tours);
+  const reviews = hl.reviews.map((r) => ({ id: r.id, name: r.name, place: r.tourTitle, stars: r.rating, text: r.text }));
+  const s = hl.stats;
+  const stats = s ? [
+    { to: s.travellers, label: "Happy travellers" },
+    { to: s.tours, label: "Tours to choose from" },
+    { to: s.reviews, label: "Traveller reviews" },
+  ].filter((x) => x.to > 0).map((x) => ({ ...x, suffix: "" })) : [];
 
   return (
     <main>
       <Hero destinations={destinations} />
-      <Hero3DLoader />
-      <Reveal><About /></Reveal>
+      <About />
       <DepthScene />
-      <Reveal><WhyChoose /></Reveal>
-      <Reveal><HolidayTours tours={holiday} /></Reveal>
-      <Reveal><ShortTours tours={short} /></Reveal>
-      <Reveal><DayTours tours={day} /></Reveal>
-      <Reveal><Stats /></Reveal>
-      <Reveal><Testimonials /></Reveal>
-      <Reveal><FeatureShowcase /></Reveal>
-      <Reveal><Trending destinations={trendingDestinations(destinations)} /></Reveal>
-      <Reveal><Blogs posts={blogCards(posts)} /></Reveal>
-      <Reveal><Heritage /></Reveal>
-      <Reveal><Gallery /></Reveal>
+      <WhyChoose />
+      <HolidayTours tours={holiday} />
+      <ShortTours tours={short} />
+      <DayTours tours={day} />
+      <Stats stats={stats} />
+      <Testimonials reviews={reviews} />
+      <FeatureShowcase />
+      <Trending destinations={trendingDestinations(destinations)} />
+      <Blogs posts={blogCards(posts)} />
+      <Heritage />
+      <Gallery items={gallery} />
     </main>
   );
 }

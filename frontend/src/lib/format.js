@@ -23,3 +23,10 @@ export const toLocalInput = (iso) => {
 };
 
 export const fromLocalInput = (v) => (v ? new Date(v).toISOString() : null);
+
+export const slugify = (s) =>
+  String(s || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 140);
+
+// local <input type="datetime-local"> value -> "YYYY-MM-DD HH:MM:SS" in UTC (what MariaDB DATETIME expects)
+export const toSqlUtc = (v) => (v ? new Date(v).toISOString().slice(0, 19).replace("T", " ") : null);

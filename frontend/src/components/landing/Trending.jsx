@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import Image from "@/components/ui/RemoteImage";
 import { AnimatePresence, motion, useMotionValue, useSpring } from "framer-motion";
 import Container from "@/components/ui/Container";
 import SectionHeader from "./SectionHeader";
@@ -21,6 +21,8 @@ export default function Trending({ destinations }) {
   const y = useMotionValue(0);
   const sx = useSpring(x, { stiffness: 450, damping: 32 });
   const sy = useSpring(y, { stiffness: 450, damping: 32 });
+
+  if (!destinations.length) return null;
 
   return (
     <section className="bg-white py-24" onMouseMove={(e) => { x.set(e.clientX + 18); y.set(e.clientY + 18); }}>

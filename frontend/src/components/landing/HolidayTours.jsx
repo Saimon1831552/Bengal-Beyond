@@ -1,7 +1,7 @@
 "use client";
 import { useRef } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import Image from "@/components/ui/RemoteImage";
 import Container from "@/components/ui/Container";
 import SectionHeader from "./SectionHeader";
 import { formatPrice } from "@/lib/format";
@@ -9,6 +9,8 @@ import { formatPrice } from "@/lib/format";
 export default function HolidayTours({ tours }) {
   const ref = useRef(null);
   const go = (d) => ref.current?.scrollBy({ left: d * 340, behavior: "smooth" });
+
+  if (!tours.length) return null;
 
   return (
     <section className="py-24">

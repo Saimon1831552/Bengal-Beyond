@@ -1,58 +1,41 @@
 "use client";
-import { createContext, useContext } from "react";
+
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import Container from "@/components/ui/Container";
 import { Loading } from "@/components/account/State";
-import useFetch from "@/hooks/useFetch";
+import DashboardShell from "@/components/dashboard/DashboardShell";
+import useAccess from "@/hooks/useAccess";
+import { loadAccess } from "@/lib/access";
+import { ADMIN_NAV, buildNav } from "@/lib/navigation";
+import { useAccessStore } from "@/store/useAccessStore";
 
-const NAV = [
-  { href: "/admin", label: "Dashboard", perm: "dashboard.read", exact: true },
-  { href: "/admin/bookings", label: "Bookings", perm: "bookings.read" },
-  { href: "/admin/cancellations", label: "Cancellations", perm: "bookings.manage" },
-  { href: "/admin/tours", label: "Tours", perm: "tours.manage" },
-  { href: "/admin/payments", label: "Payments", perm: "payments.read" },
-  { href: "/admin/refunds", label: "Refunds", perm: "refunds.manage" },
-  { href: "/admin/emails", label: "Emails", perm: "settings.manage" },
-];
-
-const Ctx = createContext([]);
-export const useCan = () => { const p = useContext(Ctx); return (perm) => p.includes(perm); };
+export const useCan = () => {
+  const permissions = useAccessStore((s) => s.permissions);
+  return (perm) => permissions.includes(perm);
+};
 
 export default function AdminShell({ children }) {
-  const { data, error, loading } = useFetch("/me/permissions");
-  const pathname = usePathname();
+  const a = useAccess();
 
-  if (loading) return <Container className="py-10"><Loading /></Container>;
-  const perms = data?.permissions || [];
-  const items = NAV.filter((n) => perms.includes(n.perm));
-
-  if (error || !items.length) {
+  if (a.status === "idle" || a.status === "loading") return <Container className="py-10"><Loading /></Container>;
+  if (a.status === "error") {
     return (
       <Container as="main" className="py-16 text-center">
-        <h1 className="text-3xl text-primary">No access</h1>
-        <p className="mt-3 text-muted">Your account doesn&apos;t have permission to view the admin area.</p>
-        <Link href="/" className="mt-6 inline-block font-semibold text-accent underline">Back to site</Link>
+        <p role="alert" className="text-terracotta">Couldn&apos;t load your permissions.</p>
+        <button onClick={loadAccess} className="mt-4 font-semibold text-primary underline">Retry</button>
       </Container>
     );
   }
 
-  return (
-    <Ctx.Provider value={perms}>
-      <Container className="pt-8">
-        <nav aria-label="Admin" className="flex gap-2 overflow-x-auto border-b border-border pb-3">
-          {items.map((n) => {
-            const on = n.exact ? pathname === n.href : pathname.startsWith(n.href);
-            return (
-              <Link key={n.href} href={n.href} aria-current={on ? "page" : undefined}
-                className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium ${on ? "bg-primary text-white" : "text-primary hover:bg-primary/10"}`}>
-                {n.label}
-              </Link>
-            );
-          })}
-        </nav>
+  const groups = buildNav(ADMIN_NAV, a);
+  if (!a.isStaff || !groups.length) {
+    return (
+      <Container as="main" className="py-16 text-center">
+        <h1 className="text-3xl text-primary">No access</h1>
+        <p className="mt-3 text-muted">Your account doesn&apos;t have permission to view the admin area.</p>
+        <Link href="/dashboard" className="mt-6 inline-block font-semibold text-accent underline">Go to my account</Link>
       </Container>
-      {children}
-    </Ctx.Provider>
-  );
+    );
+  }
+  return <DashboardShell groups={groups} label={a.isSuper ? "Super Admin" : "Admin"} topLink={{ href: "/dashboard", label: "My account" }}>{children}</DashboardShell>;
 }

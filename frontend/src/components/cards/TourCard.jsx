@@ -1,5 +1,5 @@
 import Link from "next/link";
-import Image from "next/image";
+import Image from "@/components/ui/RemoteImage";
 import Card from "@/components/ui/Card";
 import { formatDate, formatPrice } from "@/lib/format";
 

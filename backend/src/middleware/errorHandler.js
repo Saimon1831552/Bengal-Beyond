@@ -6,6 +6,14 @@ const logger = require("../utils/logger");
 // Raw SQL text is never sent to the client.
 function mapKnownError(error) {
   if (error instanceof AppError) return error;
+  if (Array.isArray(error?.issues) && /Zod/.test(error?.name || "")) {
+    return AppError.validation(
+      error.issues.map((i) => {
+        const path = (i.path || []).join(".");
+        return { path, message: path ? `${path}: ${i.message}` : i.message };
+      })
+    );
+  }
 
   // body-parser
   if (error.type === "entity.parse.failed") {

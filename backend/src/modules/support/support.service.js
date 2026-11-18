@@ -1,6 +1,9 @@
 const crypto = require("crypto");
 const { pool, withTransaction } = require("../../config/db");
+const env = require("../../config/env");
+const logger = require("../../utils/logger");
 const v = require("./support.validation");
+const { enqueue } = require("../notifications/notification.queue");
 
 function httpError(message, statusCode) {
   const error = new Error(message);
@@ -101,19 +104,40 @@ async function getAdminTicket(ticketId) {
        FROM support_messages WHERE ticket_id = ? ORDER BY created_at ASC, id ASC`, [ticketId]);
   return { ...ticket, messages };
 }
+async function queueReplyEmail(conn, ticketId, messageId, message) {
+  try {
+    const [[t]] = await conn.execute(
+      `SELECT t.ticket_reference, t.subject, t.user_id,
+              COALESCE(u.email, t.guest_email) AS email, COALESCE(u.full_name, t.guest_name) AS name
+         FROM support_tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.id = ?`, [ticketId]);
+    if (!t?.email) return;
+    await enqueue({
+      userId: t.user_id, channel: "email", recipient: t.email, templateKey: "support_reply",
+      payload: {
+        name: t.name || "there", ticket_reference: t.ticket_reference, subject: t.subject, message,
+        contact_url: `${env.FRONTEND_URL.split(",")[0].trim().replace(/\/+$/, "")}/contact`,
+      },
+      idempotencyKey: `support_reply:${messageId}`, conn,
+    });
+  } catch (error) {
+    logger.error("Could not queue support reply email", { ticketId, error: error.message });
+  }
+}
 async function addStaffMessage(ticketId, staffId, message, isInternal) {
   return withTransaction(async (conn) => {
     const [[ticket]] = await conn.execute("SELECT id, status FROM support_tickets WHERE id = ? FOR UPDATE", [ticketId]);
     if (!ticket) httpError("Support ticket not found", 404);
-    await conn.execute(
+    const [ins] = await conn.execute(
       `INSERT INTO support_messages (ticket_id, sender_type, sender_user_id, message_text, is_internal)
        VALUES (?, 'staff', ?, ?, ?)`, [ticketId, staffId, message, isInternal ? 1 : 0]);
+    const i = isInternal ? 1 : 0;
     await conn.execute(
       `UPDATE support_tickets SET last_message_at = NOW(),
         status = CASE WHEN ? = 1 THEN status ELSE 'waiting_customer' END,
         resolved_at = CASE WHEN ? = 1 THEN resolved_at ELSE NULL END,
         closed_at = CASE WHEN ? = 1 THEN closed_at ELSE NULL END
-       WHERE id = ?`, [isInternal ? 1 : 0, isInternal ? 1 : 0, isInternal ? 1 : 0, ticketId]);
+       WHERE id = ?`, [i, i, i, ticketId]);
+    if (!isInternal) await queueReplyEmail(conn, ticketId, ins.insertId, message);
     return { ticketId, messageAdded: true, internal: Boolean(isInternal) };
   });
 }

@@ -6,9 +6,11 @@ import { organizationJsonLd, websiteJsonLd } from "@/lib/jsonld";
 import SmoothScroll from "@/components/SmoothScroll";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
+import MaintenanceBanner from "@/components/layout/MaintenanceBanner";
 import AuthProvider from "@/components/providers/AuthProvider";
 import CustomCursor from "@/components/fx/CustomCursor";
 import MicroFX from "@/components/fx/MicroFX";
+import { getSiteInfo } from "@/services/content";
 
 
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces", display: "swap", style: ["normal", "italic"] });
@@ -48,7 +50,9 @@ export const viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({ children }) {
+export default async function RootLayout({ children }) {
+  const info = await getSiteInfo();
+
   return (
     <html lang={siteConfig.language} className={`${fraunces.variable} ${manrope.variable}`}>
       <body className="min-h-full flex flex-col">
@@ -57,7 +61,8 @@ export default function RootLayout({ children }) {
             <a href="#main" className="skip-link">Skip to content</a>
             <Navbar />
             <div id="main" className="flex-1">{children}</div>
-            <Footer />
+            <Footer info={info} />
+            <MaintenanceBanner info={info} />
           </AuthProvider>
           <CustomCursor />
           <MicroFX />

@@ -27,6 +27,38 @@ async function apiRaw(path, revalidate = 60) {
   return res.json();
 }
 
+export async function getSiteInfo() {
+  try { return (await apiRaw("/site-info", 60)).data; } catch { return null; }
+}
+
+export async function getHighlights() {
+  try { return (await apiRaw("/highlights", 300)).data; }
+  catch { return { reviews: [], stats: null }; }
+}
+
+export async function getGallery(limit = 9) {
+  try {
+    const j = await apiRaw(`/gallery?limit=${limit}`, 300);
+    return (j.data?.items ?? []).map((g) => ({ id: g.id, src: g.media_url, caption: g.title || g.alt_text || "", alt: g.alt_text || g.title || "" }));
+  } catch { return []; }
+}
+
+const NO_REVIEWS = { items: [], summary: { total: 0, averageRating: 0 } };
+export async function getTourReviews(tourId) {
+  try {
+    const j = await apiRaw(`/tours/${tourId}/reviews?limit=20`, 300);
+    return { items: j.data ?? [], summary: j.meta?.summary ?? NO_REVIEWS.summary };
+  } catch { return NO_REVIEWS; }
+}
+
+export async function getTourDepartures(tourId) {
+  try {
+    const j = await apiRaw(`/tours/${tourId}/departures?availableOnly=true`, 120);
+    const now = Date.now();
+    return (j.data ?? []).filter((d) => d.status === "scheduled" && new Date(d.starts_at).getTime() > now).slice(0, 6);
+  } catch { return []; }
+}
+
 /* ---------- mappers: API row -> page shape ---------- */
 
 function mapDestination(r) {

@@ -7,6 +7,7 @@ import useFetch from "@/hooks/useFetch";
 import { money, formatDate, titleCase } from "@/lib/format";
 import PayPanel from "./PayPanel";
 import CancelRequest from "./CancelRequest";
+import ReviewPrompt from "./ReviewPrompt";
 
 const snap = (v) => { try { return typeof v === "string" ? JSON.parse(v) : v || {}; } catch { return {}; } };
 
@@ -54,6 +55,7 @@ export default function BookingDetail({ id }) {
       </section>
 
       <CancelRequest booking={b} requests={change_requests} reload={reload} />
+      <ReviewPrompt booking={b} items={items} />
       {notes.length > 0 && (
         <section className="mt-8">
           <h2 className="text-xl text-primary">Messages from our team</h2>

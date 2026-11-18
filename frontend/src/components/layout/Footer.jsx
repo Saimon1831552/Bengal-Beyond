@@ -1,11 +1,13 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import Container from "@/components/ui/Container";
 import Magnetic from "@/components/fx/Magnetic";
 import { burst } from "@/lib/burst";
 import { siteConfig } from "@/config/site";
+import { isAppRoute } from "@/lib/access";
 
 const columns = [
   { title: "Explore", links: [["/destinations", "Destinations"], ["/tours", "Tours"], ["/blog", "Travel blog"]] },
@@ -52,8 +54,15 @@ function Newsletter() {
   );
 }
 
-export default function Footer() {
-  const { contact, social } = siteConfig;
+export default function Footer({ info }) {
+  const pathname = usePathname();
+  const { social } = siteConfig;
+  const contact = {
+    email: info?.support_email || siteConfig.contact.email,
+    phone: info?.support_phone || siteConfig.contact.phone,
+  };
+  if (isAppRoute(pathname)) return null;
+
   return (
     <footer className="mt-20 bg-brand text-sand">
       <Container className="py-20 text-center">

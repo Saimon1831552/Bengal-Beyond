@@ -1,13 +1,13 @@
 "use client";
 import Link from "next/link";
-import Image from "next/image";
+import Image from "@/components/ui/RemoteImage";
 import Container from "@/components/ui/Container";
 import Reveal from "@/components/fx/Reveal";
 import SectionHeader from "./SectionHeader";
 
-const DEFAULT_HIGHLIGHTS = ["Guided by a local expert", "Handpicked stays and meals", "Transport between stops", "Flexible pace for small groups"];
-
 export default function ShortTours({ tours }) {
+  if (!tours.length) return null;
+
   return (
     <section className="bg-white py-24">
       <Container>
@@ -26,12 +26,8 @@ export default function ShortTours({ tours }) {
                   </div>
                 </div>
                 <div className="absolute inset-0 flex flex-col rounded-3xl bg-primary p-7 text-white [backface-visibility:hidden] [transform:rotateY(180deg)]">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-gold">Itinerary highlights</p>
-                  <ul className="mt-4 flex-1 space-y-3 text-sm">
-                    {(t.highlights || DEFAULT_HIGHLIGHTS).map((h) => (
-                      <li key={h} className="flex gap-2"><span className="text-gold">✦</span>{h}</li>
-                    ))}
-                  </ul>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-gold">About this tour</p>
+                  <p className="mt-4 flex-1 text-sm leading-relaxed text-white/90">{t.summary || "Open the tour page for the full details."}</p>
                   <Link href={t.href} className="rounded-full bg-gold px-5 py-2.5 text-center text-sm font-semibold text-primary-dark">View itinerary</Link>
                 </div>
               </div>

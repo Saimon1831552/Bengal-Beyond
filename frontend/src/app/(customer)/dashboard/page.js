@@ -12,7 +12,7 @@ import { errMsg } from "@/lib/errors";
 
 export default function Dashboard() {
   const user = useAuthStore((s) => s.user);
-  const { data, error, loading, reload } = useFetch("/customer/bookings?limit=3");
+  const { data, error, loading, reload } = useFetch("/customer/bookings?limit=50");
   const [mail, setMail] = useState("");
 
   const resend = async () => {
@@ -23,6 +23,26 @@ export default function Dashboard() {
   return (
     <Container as="main" className="py-8">
       <h1 className="text-3xl text-primary">Welcome, {(user?.fullName || "traveller").split(" ")[0]}</h1>
+
+      {data && (() => {
+        const items = data.items;
+        const open = (b) => ["pending_review", "awaiting_payment"].includes(b.booking_status);
+        const stats = [
+          ["Total bookings", data.pagination.total],
+          ["Confirmed", items.filter((b) => b.booking_status === "confirmed").length],
+          ["Awaiting payment", items.filter((b) => open(b) && ["unpaid", "failed", "pending"].includes(b.payment_status)).length],
+        ];
+        return (
+          <div className="mt-6 grid grid-cols-3 gap-4">
+            {stats.map(([l, v]) => (
+              <div key={l} className="rounded-2xl border border-border bg-white p-5">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted">{l}</p>
+                <p className="mt-2 font-display text-3xl font-semibold text-primary">{v}</p>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {user && !user.emailVerifiedAt && (
         <div className="mt-6 rounded-2xl border border-gold/50 bg-gold/15 p-4 text-sm text-primary-dark">
@@ -39,7 +59,7 @@ export default function Dashboard() {
       <div className="mt-4 space-y-3">
         {loading ? <Loading /> : error ? <ErrorBox error={error} onRetry={reload} /> :
           !data.items.length ? <Empty>No bookings yet. <Link href="/tours" className="font-semibold text-primary underline">Browse tours</Link></Empty> :
-          data.items.map((b) => (
+          data.items.slice(0, 3).map((b) => (
             <Link key={b.id} href={`/bookings/${b.id}`} className="lift flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-white p-5">
               <div>
                 <p className="font-semibold text-primary">{b.booking_reference}</p>

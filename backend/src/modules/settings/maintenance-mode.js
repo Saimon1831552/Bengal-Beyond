@@ -2,6 +2,11 @@ const { pool } = require("../../config/db");
 const AppError = require("../../utils/appError");
 
 const CACHE_TTL_MS = 5000;
+const ALLOWED = [
+  "/health", "/admin", "/site-info", "/me/permissions",
+  "/auth/login", "/auth/refresh", "/auth/logout",
+  "/webhooks", "/payments/sslcommerz",
+];
 let cachedSettings;
 let cacheExpiresAt = 0;
 
@@ -29,7 +34,7 @@ function clearCache() {
 }
 
 async function maintenanceMode(req, res, next) {
-  if (req.path.startsWith("/health") || req.path.startsWith("/admin")) return next();
+  if (ALLOWED.some((p) => req.path === p || req.path.startsWith(`${p}/`))) return next();
 
   const settings = await getMaintenanceSettings();
   if (!settings.enabled) return next();

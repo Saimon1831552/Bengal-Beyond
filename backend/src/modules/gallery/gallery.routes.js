@@ -24,18 +24,6 @@ function createGalleryRouter({ authenticate, authorize }) {
   }
   const router = express.Router();
 
-  // Public gallery: published items only.
-  router.get('/', asyncHandler(async (req, res) => {
-    const q = pagination.parse(req.query);
-    const tourId = req.query.tour_id === undefined ? undefined : idSchema.parse(req.query.tour_id);
-    return sendSuccess(res, await service.listPublic({ ...q, tourId }));
-  }));
-  router.get('/:id', asyncHandler(async (req, res) => {
-    const id = idSchema.parse(req.params.id); const item = await service.getById(id);
-    if (!item || item.status !== 'published') return res.status(404).json({ success:false, error:{ code:'GALLERY_ITEM_NOT_FOUND', message:'Gallery item not found' } });
-    return sendSuccess(res, item);
-  }));
-
   // Admin endpoints. Mount this router at /gallery; protect /admin separately in the route index below.
   const admin = express.Router();
   admin.use(authenticate, authorize('content.manage'));
@@ -62,6 +50,19 @@ function createGalleryRouter({ authenticate, authorize }) {
     return sendSuccess(res, { id, deleted:true });
   }));
   router.use('/admin', admin);
+
+  // Public gallery: published items only.
+  router.get('/', asyncHandler(async (req, res) => {
+    const q = pagination.parse(req.query);
+    const tourId = req.query.tour_id === undefined ? undefined : idSchema.parse(req.query.tour_id);
+    return sendSuccess(res, await service.listPublic({ ...q, tourId }));
+  }));
+  router.get('/:id', asyncHandler(async (req, res) => {
+    const id = idSchema.parse(req.params.id); const item = await service.getById(id);
+    if (!item || item.status !== 'published') return res.status(404).json({ success:false, error:{ code:'GALLERY_ITEM_NOT_FOUND', message:'Gallery item not found' } });
+    return sendSuccess(res, item);
+  }));
+
   return router;
 }
 module.exports = { createGalleryRouter };

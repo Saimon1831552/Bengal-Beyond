@@ -83,4 +83,4 @@ async function archive(id) {
   return result.affectedRows > 0;
 }
 
-module.exports = { listPublic, getPublicBySlug, listAdmin, create, update, archive };
+module.exports = { listPublic, getPublicBySlug, listAdmin, getAdminById, create, update, archive };

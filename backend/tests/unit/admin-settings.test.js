@@ -128,7 +128,7 @@ test("maintenance mode blocks public API traffic but leaves health and admin rou
   assert.equal(continued, true);
 
   await assert.rejects(
-    maintenance.maintenanceMode({ path: "/auth/login" }, {}, () => {}),
+    maintenance.maintenanceMode({ path: "/tours" }, {}, () => {}),
     (error) => error.statusCode === 503 && error.message === "Maintenance in progress.",
   );
 });

@@ -1,12 +1,14 @@
 "use client";
 import Link from "next/link";
-import Image from "next/image";
+import Image from "@/components/ui/RemoteImage";
 import Container from "@/components/ui/Container";
 import Reveal from "@/components/fx/Reveal";
 import SectionHeader from "./SectionHeader";
 import { formatPrice } from "@/lib/format";
 
 export default function DayTours({ tours }) {
+  if (!tours.length) return null;
+
   return (
     <section className="py-24">
       <Container>

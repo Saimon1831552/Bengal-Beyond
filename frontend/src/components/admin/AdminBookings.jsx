@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorBox, Empty } from "@/components/account/State";
@@ -15,6 +16,13 @@ export default function AdminBookings() {
   const [f, setF] = useState({ q: "", status: "", payment_status: "" });
   const [applied, setApplied] = useState(f);
   const [page, setPage] = useState(1);
+  const urlStatus = useSearchParams().get("status") || "";
+
+  useEffect(() => {
+    setF((x) => ({ ...x, status: urlStatus }));
+    setApplied((x) => ({ ...x, status: urlStatus }));
+    setPage(1);
+  }, [urlStatus]);
 
   const qs = new URLSearchParams({ page, limit: 20 });
   for (const [k, v] of Object.entries(applied)) if (v) qs.set(k, v);

@@ -33,11 +33,11 @@ function userStatusColumn() {
 async function list(q) {
   const page = Math.max(1, Number.parseInt(q.page, 10) || 1);
   const limit = Math.max(1, Math.min(100, Number.parseInt(q.limit, 10) || 20));
-  const where = ["u.role_id IS NOT NULL"];
+  const where = ["EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND r.role_key = 'customer')"];
   const params = [];
   if (q.search) {
     const term = `%${String(q.search).trim().slice(0, 120)}%`;
-    where.push("(u.name LIKE ? OR u.email LIKE ? OR u.phone LIKE ?)");
+    where.push("(u.full_name LIKE ? OR u.email LIKE ? OR u.phone LIKE ?)");
     params.push(term, term, term);
   }
   if (q.status) {
@@ -48,7 +48,7 @@ async function list(q) {
   const clause = `WHERE ${where.join(" AND ")}`;
   const count = await rows(`SELECT COUNT(*) AS total FROM users u ${clause}`, params);
   const data = await rows(
-    `SELECT u.id, u.name, u.email, u.phone, u.${userStatusColumn()} AS account_status,
+    `SELECT u.id, u.full_name AS name, u.email, u.phone, u.${userStatusColumn()} AS account_status,
             u.created_at,
             (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id) AS total_bookings,
             (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id AND b.booking_status IN ('confirmed','completed')) AS confirmed_or_completed_bookings
@@ -62,7 +62,7 @@ async function list(q) {
 async function getById(id) {
   id = validId(id);
   const found = await rows(
-    `SELECT u.id, u.name, u.email, u.phone, u.${userStatusColumn()} AS account_status, u.created_at,
+    `SELECT u.id, u.full_name AS name, u.email, u.phone, u.${userStatusColumn()} AS account_status, u.created_at,
             (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id) AS total_bookings
        FROM users u WHERE u.id = ? LIMIT 1`,
     [id]

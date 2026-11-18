@@ -6,6 +6,7 @@ import Container from "@/components/ui/Container";
 import Magnetic from "@/components/fx/Magnetic";
 import AuthMenu from "./AuthMenu";
 import { siteConfig } from "@/config/site";
+import { isAppRoute } from "@/lib/access";
 
 const links = [
   { href: "/destinations", label: "Destinations" },
@@ -26,6 +27,8 @@ export default function Navbar() {
     window.addEventListener("scroll", on, { passive: true });
     return () => window.removeEventListener("scroll", on);
   }, []);
+
+  if (isAppRoute(pathname)) return null;
 
   const active = (h) => pathname === h || pathname.startsWith(`${h}/`);
   const tone = overHero ? "text-white" : "text-primary";

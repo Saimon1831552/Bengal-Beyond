@@ -29,24 +29,17 @@ function createBlogRouter({ authenticate, authorize }) {
     throw new Error("Blog router requires the application's real authenticate and authorize middleware");
   }
 
-  // Public routes: intentionally do not use authentication middleware.
-  router.get("/", asyncHandler(async (req, res) => {
-    const q = paginationSchema.parse(req.query);
-    return sendSuccess(res, await service.listPublic(q));
-  }));
-  router.get("/:slug", asyncHandler(async (req, res) => {
-    const slug = z.string().min(1).max(220).parse(req.params.slug);
-    const post = await service.getPublicBySlug(slug);
-    if (!post) return res.status(404).json({ success: false, error: { code: "BLOG_POST_NOT_FOUND", message: "Blog post not found" } });
-    return sendSuccess(res, post);
-  }));
-
   const admin = express.Router();
   admin.use(authenticate, authorize("content.manage"));
   admin.get("/", asyncHandler(async (req, res) => {
     const q = paginationSchema.parse(req.query);
     const status = req.query.status === undefined ? undefined : statusSchema.parse(req.query.status);
     return sendSuccess(res, await service.listAdmin({ ...q, status }));
+  }));
+  admin.get("/:id", asyncHandler(async (req, res) => {
+    const post = await service.getAdminById(idSchema.parse(req.params.id));
+    if (!post) return res.status(404).json({ success: false, error: { code: "BLOG_POST_NOT_FOUND", message: "Blog post not found" } });
+    return sendSuccess(res, post);
   }));
   admin.post("/", asyncHandler(async (req, res) => {
     const data = postSchema.parse(req.body);
@@ -65,6 +58,19 @@ function createBlogRouter({ authenticate, authorize }) {
     return sendSuccess(res, { id, archived: true });
   }));
   router.use("/admin", admin);
+
+  // Public routes: intentionally do not use authentication middleware.
+  router.get("/", asyncHandler(async (req, res) => {
+    const q = paginationSchema.parse(req.query);
+    return sendSuccess(res, await service.listPublic(q));
+  }));
+  router.get("/:slug", asyncHandler(async (req, res) => {
+    const slug = z.string().min(1).max(220).parse(req.params.slug);
+    const post = await service.getPublicBySlug(slug);
+    if (!post) return res.status(404).json({ success: false, error: { code: "BLOG_POST_NOT_FOUND", message: "Blog post not found" } });
+    return sendSuccess(res, post);
+  }));
+
   return router;
 }
 

@@ -75,7 +75,9 @@ export const tourJsonLd = (t) =>
     offers: t.price
       ? { "@type": "Offer", price: t.price, priceCurrency: t.currency || "USD", availability: "https://schema.org/InStock", url: absoluteUrl(`/tours/${t.slug}`) }
       : undefined,
-    // Add aggregateRating ONLY from real, visible reviews
+    aggregateRating: t.rating?.count
+      ? { "@type": "AggregateRating", ratingValue: t.rating.value, reviewCount: t.rating.count, bestRating: 5, worstRating: 1 }
+      : undefined,
   });
 
 export const articleJsonLd = (p) =>

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { buildMetadata } from "@/lib/seo";
 import { articleJsonLd } from "@/lib/jsonld";
 import { getPost, getPosts } from "@/services/content";
+import Image from "@/components/ui/RemoteImage";
 import JsonLd from "@/components/seo/JsonLd";
 import Breadcrumbs from "@/components/seo/Breadcrumbs";
 
@@ -35,7 +36,10 @@ export default async function PostPage({ params }) {
       <article>
         <h1>{p.title}</h1>
         <p>By {p.author} · <time dateTime={p.publishedAt}>{p.publishedAt}</time></p>
-        <div>{p.body}</div>
+        {p.image && <div className="relative my-6 aspect-[16/9] overflow-hidden rounded-3xl"><Image src={p.image} alt={p.title} fill priority className="object-cover" /></div>}
+        <div className="space-y-4 text-foreground/85">
+          {p.body.split(/\n{2,}/).filter(Boolean).map((para, i) => <p key={i} className="whitespace-pre-line">{para}</p>)}
+        </div>
       </article>
       <JsonLd data={articleJsonLd(p)} />
     </main>

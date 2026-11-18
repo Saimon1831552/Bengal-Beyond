@@ -6,6 +6,7 @@ import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorBox } from "@/components/account/State";
 import TourForm from "./TourForm";
+import TourTaxonomy from "./TourTaxonomy";
 import DepartureManager from "./DepartureManager";
 import { useCan } from "./AdminShell";
 import useFetch from "@/hooks/useFetch";
@@ -60,6 +61,7 @@ export default function AdminTourEdit({ id }) {
       </div>
 
       <TourForm key={t.updated_at} tour={t} onSaved={reload} />
+      {can("content.manage") && <TourTaxonomy tourId={t.id} />}
 
       {can("departures.manage")
         ? <DepartureManager tourId={t.id} currency={t.currency_code} basePrice={t.base_price} />

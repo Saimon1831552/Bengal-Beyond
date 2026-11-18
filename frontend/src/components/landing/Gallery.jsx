@@ -1,14 +1,15 @@
 "use client";
 import { useEffect, useState } from "react";
-import Image from "next/image";
+import Image from "@/components/ui/RemoteImage";
 import { AnimatePresence, motion } from "framer-motion";
 import Container from "@/components/ui/Container";
 import Reveal from "@/components/fx/Reveal";
-import { GALLERY } from "./data";
 
-export default function Gallery() {
+const RATIOS = ["3/4", "4/3", "1/1"];
+
+export default function Gallery({ items = [] }) {
   const [open, setOpen] = useState(null);
-  const N = GALLERY.length;
+  const N = items.length;
 
   useEffect(() => {
     if (open === null) return;
@@ -21,6 +22,8 @@ export default function Gallery() {
     document.body.style.overflow = "hidden";
     return () => { window.removeEventListener("keydown", key); document.body.style.overflow = ""; };
   }, [open, N]);
+
+  if (N < 3) return null;
 
   return (
     <section className="py-24">
@@ -36,17 +39,17 @@ export default function Gallery() {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          {GALLERY.map((g, i) => (
+          {items.map((g, i) => (
             <motion.button
-              key={i}
-              layoutId={`g-${i}`}
+              key={g.id}
+              layoutId={`g-${g.id}`}
               onClick={() => setOpen(i)}
               data-cursor="Open"
-              style={{ aspectRatio: g.ratio }}
+              style={{ aspectRatio: RATIOS[i % 3] }}
               className={`relative overflow-hidden rounded-2xl ${i % 3 === 0 ? "col-span-2" : ""}`}
               aria-label={`Open photo: ${g.caption}`}
             >
-              <Image src={g.src} alt={g.caption} fill sizes="(min-width:768px) 30vw, 50vw" className="object-cover transition-transform duration-500 hover:scale-105" />
+              <Image src={g.src} alt={g.alt} fill sizes="(min-width:768px) 30vw, 50vw" className="object-cover transition-transform duration-500 hover:scale-105" />
             </motion.button>
           ))}
         </div>
@@ -60,9 +63,9 @@ export default function Gallery() {
             onClick={() => setOpen(null)}
             className="fixed inset-0 z-[60] grid place-items-center bg-black/90 p-4"
           >
-            <motion.div layoutId={`g-${open}`} onClick={(e) => e.stopPropagation()} className="relative h-[80vh] w-[92vw] max-w-5xl overflow-hidden rounded-2xl">
-              <Image src={GALLERY[open].src} alt={GALLERY[open].caption} fill sizes="92vw" className="object-contain" priority />
-              <p className="absolute bottom-4 left-4 rounded-full bg-black/50 px-4 py-1.5 text-sm text-white backdrop-blur">{GALLERY[open].caption}</p>
+            <motion.div layoutId={`g-${items[open].id}`} onClick={(e) => e.stopPropagation()} className="relative h-[80vh] w-[92vw] max-w-5xl overflow-hidden rounded-2xl">
+              <Image src={items[open].src} alt={items[open].alt} fill sizes="92vw" className="object-contain" priority />
+              {items[open].caption && <p className="absolute bottom-4 left-4 rounded-full bg-black/50 px-4 py-1.5 text-sm text-white backdrop-blur">{items[open].caption}</p>}
             </motion.div>
             <button onClick={() => setOpen(null)} aria-label="Close" className="absolute right-5 top-5 grid h-11 w-11 place-items-center rounded-full bg-white/15 text-2xl text-white backdrop-blur hover:bg-white/30">×</button>
           </motion.div>

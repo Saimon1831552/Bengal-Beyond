@@ -5,30 +5,31 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authService } from "@/services/auth.service";
 import { useAuthStore } from "@/store/useAuthStore";
-
-// Only allow same-site relative paths (prevents open redirects)
-const safeNext = (n) => (n && n.startsWith("/") && !n.startsWith("//") ? n : "/dashboard");
+import { loadAccess, homeFor } from "@/lib/access";
 
 export default function SignInForm() {
   const router = useRouter();
-  const next = safeNext(useSearchParams().get("next"));
+  const raw = useSearchParams().get("next");
+  const safe = raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : null;
   const status = useAuthStore((s) => s.status);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { if (status === "authenticated") router.replace(next); }, [status, next, router]);
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    let live = true;
+    loadAccess().then((a) => live && router.replace(safe || homeFor(a)));
+    return () => { live = false; };
+  }, [status, safe, router]);
 
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true); setError("");
-    try {
-      await authService.login(email.trim(), password);
-      router.replace(next);
-    } catch (err) {
-      setError(err.response?.data?.error?.message || "Could not sign in. Please try again.");
-    } finally { setBusy(false); }
+    try { await authService.login(email.trim(), password); } // the effect above redirects
+    catch (err) { setError(err.response?.data?.error?.message || "Could not sign in. Please try again."); }
+    finally { setBusy(false); }
   };
 
   const input = "mt-1 w-full rounded-xl border border-border bg-white px-4 py-3 outline-none focus:border-accent";

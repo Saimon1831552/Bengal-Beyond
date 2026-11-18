@@ -55,7 +55,7 @@ router.use("/tours", require("../modules/tours/tour.routes"));
     require("../modules/departure-availability/departure.admin.routes"));
 
  router.use("/", require("../modules/tour-reviews/review.public.routes"));
- router.use("/tours", authenticate, require("../modules/tour-reviews/review.customer.routes"));
+ router.use("/", require("../modules/tour-reviews/review.customer.routes"));
  router.use(
     "/admin/reviews",
     authenticate,
@@ -89,7 +89,7 @@ router.use("/tours", require("../modules/tours/tour.routes"));
      require("../modules/support/support.customer.routes"));
  
   router.use("/admin/support", authenticate,
-     authorize("settings.manage"),
+     authorize("enquiries.manage"),
      require("../modules/support/support.admin.routes"));
 
   router.use("/admin/notifications", authenticate,
@@ -105,7 +105,9 @@ router.use("/tours", require("../modules/tours/tour.routes"));
   router.use("/admin/cancellation-requests", authenticate, authorize("bookings.manage"),
   require("../modules/cancellations/cancellation.routes"));
 
-  
+  router.use("/site-info", require("../modules/settings/site-info.routes"));
+
+  router.use("/highlights", require("../modules/public/highlights.routes"));
 
 
 module.exports = router;

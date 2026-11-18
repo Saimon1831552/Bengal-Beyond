@@ -5,6 +5,8 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorBox } from "@/components/account/State";
 import useFetch from "@/hooks/useFetch";
 import { money, formatDate, titleCase } from "@/lib/format";
+import SecurityPanel from "./SecurityPanel";
+import { useCan } from "./AdminShell";
 
 const Stat = ({ label, value }) => (
   <div className="rounded-2xl border border-border bg-white p-5">
@@ -14,6 +16,7 @@ const Stat = ({ label, value }) => (
 );
 
 export default function AdminDashboard() {
+  const can = useCan();
   const { data: d, error, loading, reload } = useFetch("/admin/dashboard?months=6");
   if (loading) return <Container className="py-8"><Loading /></Container>;
   if (error) return <Container className="py-8"><ErrorBox error={error} onRetry={reload} /></Container>;
@@ -23,6 +26,7 @@ export default function AdminDashboard() {
   return (
     <Container as="main" className="space-y-10 py-8">
       <h1 className="text-3xl text-primary">Dashboard</h1>
+      {can("audit.read") && <SecurityPanel />}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Stat label="Bookings" value={s.totalBookings} />
