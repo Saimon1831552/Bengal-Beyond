@@ -205,7 +205,8 @@ CREATE TABLE `booking_change_requests` (
 
 CREATE TABLE `booking_idempotency_keys` (
   `id` bigint(20) UNSIGNED NOT NULL,
-  `user_id` bigint(20) UNSIGNED NOT NULL,
+  `user_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `owner_user_id` bigint(20) UNSIGNED GENERATED ALWAYS AS (COALESCE(`user_id`, 0)) STORED,
   `idempotency_key` varchar(128) NOT NULL,
   `request_hash` char(64) NOT NULL,
   `booking_id` bigint(20) UNSIGNED DEFAULT NULL,
@@ -917,6 +918,7 @@ ALTER TABLE `booking_change_requests`
 ALTER TABLE `booking_idempotency_keys`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `uq_booking_idempotency_user_key` (`user_id`,`idempotency_key`),
+  ADD UNIQUE KEY `uq_booking_idempotency_owner_key` (`owner_user_id`,`idempotency_key`),
   ADD KEY `idx_booking_idempotency_booking` (`booking_id`);
 
 --

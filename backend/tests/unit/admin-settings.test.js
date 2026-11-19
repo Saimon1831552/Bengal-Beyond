@@ -14,10 +14,10 @@ test("admin settings list and history queries are constrained", () => {
     category: "booking",
     search: "party",
   });
-  assert.deepEqual(historyQuery.parse({ page: "2", limit: "10", key: "site_name" }), {
+  assert.deepEqual(historyQuery.parse({ page: "2", limit: "10", key: "member_discount_percent" }), {
     page: 2,
     limit: 10,
-    key: "site_name",
+    key: "member_discount_percent",
   });
   assert.throws(() => listQuery.parse({ category: "secrets" }));
   assert.throws(() => historyQuery.parse({ key: "smtp_password" }));
@@ -40,9 +40,12 @@ test("setting update bodies require JSON values and accept optional audit reason
 test("settings enforce allowlisted types and range/url validation", () => {
   assert.equal(service.validateSetting("maintenance_mode", true), true);
   assert.equal(service.validateSetting("max_booking_party_size", 24), 24);
+  assert.equal(service.validateSetting("member_discount_percent", 0), 0);
+  assert.equal(service.validateSetting("member_discount_percent", 50), 50);
   assert.equal(service.validateSetting("support_url", "https://help.example.com"), "https://help.example.com");
   assert.equal(service.validateSetting("support_email", ""), "");
   assert.throws(() => service.validateSetting("max_booking_party_size", 0), { code: "BAD_REQUEST" });
+  assert.throws(() => service.validateSetting("member_discount_percent", 50.1), { code: "BAD_REQUEST" });
   assert.throws(() => service.validateSetting("maintenance_mode", "true"), { code: "BAD_REQUEST" });
   assert.throws(() => service.validateSetting("default_currency", "usd"), { code: "BAD_REQUEST" });
   assert.throws(() => service.validateSetting("support_url", "javascript:alert(1)"), { code: "BAD_REQUEST" });
@@ -65,11 +68,14 @@ test("admin settings exposes a grouped, default-filled configuration catalog", a
   const result = await service.list({});
   const siteName = result.find((setting) => setting.key === "site_name");
   const currency = result.find((setting) => setting.key === "default_currency");
+  const memberDiscount = result.find((setting) => setting.key === "member_discount_percent");
 
   assert.equal(siteName.value, "New Site");
   assert.equal(siteName.isDefault, false);
   assert.equal(currency.value, "USD");
   assert.equal(currency.isDefault, true);
+  assert.equal(memberDiscount.value, 5);
+  assert.equal(memberDiscount.isDefault, true);
   assert.equal(result.some((setting) => /password|secret|token/i.test(setting.key)), false);
 });
 

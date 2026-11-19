@@ -67,6 +67,14 @@ const SETTING_DEFINITIONS = Object.freeze({
     min: 1,
     max: 100,
   },
+  member_discount_percent: {
+    category: "booking",
+    label: "Member discount (%)",
+    type: "number",
+    defaultValue: 5,
+    min: 0,
+    max: 50,
+  },
   maintenance_mode: {
     category: "operations",
     label: "Maintenance mode",

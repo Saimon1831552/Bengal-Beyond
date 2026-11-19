@@ -29,9 +29,19 @@ function payloadHash(payload) {
   })).digest("hex");
 }
 
+async function memberDiscountPercent(conn) {
+  const [rows] = await conn.query(
+    "SELECT setting_value FROM admin_settings WHERE setting_key = 'member_discount_percent' LIMIT 1");
+  if (!rows.length) return 5;
+  try {
+    const v = JSON.parse(rows[0].setting_value);
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 5;
+  } catch { return 5; }
+}
+
 const BOOKING_FIELDS = `id, booking_reference, booking_status, payment_status,
   customer_name, customer_email, customer_phone, customer_nationality,
-  currency_code, subtotal, total_amount, expires_at, created_at`;
+  currency_code, subtotal, discount_amount, total_amount, expires_at, created_at`;
 
 async function createBooking(payload) {
   const hash = payloadHash(payload);
@@ -40,10 +50,14 @@ async function createBooking(payload) {
   try {
     await connection.beginTransaction();
 
+    const guest = !payload.userId;
+    const ownerSql = guest ? "user_id IS NULL" : "user_id = ?";
+    const ownerParams = guest ? [] : [payload.userId];
+
     const [prior] = await connection.query(
       `SELECT request_hash, booking_id FROM booking_idempotency_keys
-        WHERE user_id = ? AND idempotency_key = ? LIMIT 1 FOR UPDATE`,
-      [payload.userId, payload.idempotencyKey]
+        WHERE ${ownerSql} AND idempotency_key = ? LIMIT 1 FOR UPDATE`,
+      [...ownerParams, payload.idempotencyKey]
     );
     if (prior.length) {
       if (prior[0].request_hash !== hash) {
@@ -55,8 +69,8 @@ async function createBooking(payload) {
 
       const [old] = await connection.query(
         `SELECT ${BOOKING_FIELDS} FROM bookings
-          WHERE id = ? AND user_id = ? LIMIT 1`,
-        [prior[0].booking_id, payload.userId]
+          WHERE id = ? AND ${ownerSql} LIMIT 1`,
+        [prior[0].booking_id, ...ownerParams]
       );
       if (!old.length) throw appError(409, "Original booking is unavailable");
       await connection.commit();
@@ -66,7 +80,7 @@ async function createBooking(payload) {
     await connection.query(
       `INSERT INTO booking_idempotency_keys (user_id, idempotency_key, request_hash)
        VALUES (?, ?, ?)`,
-      [payload.userId, payload.idempotencyKey, hash]
+      [payload.userId || null, payload.idempotencyKey, hash]
     );
 
     const [departures] = await connection.query(
@@ -114,7 +128,12 @@ async function createBooking(payload) {
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {
       throw appError(500, "Invalid departure price");
     }
-    const subtotal = Math.round(unitPrice * 100 * payload.quantity) / 100;
+    const subtotalCents = Math.round(unitPrice * 100 * payload.quantity);
+    const pct = payload.userId ? await memberDiscountPercent(connection) : 0; // members only
+    const discountCents = Math.round((subtotalCents * pct) / 100);
+    const subtotal = subtotalCents / 100;
+    const discount = discountCents / 100;
+    const total = (subtotalCents - discountCents) / 100;
     const minutes = holdMinutes();
     const currency = departure.currency_code || "BDT";
 
@@ -122,11 +141,11 @@ async function createBooking(payload) {
       `INSERT INTO bookings
         (user_id, booking_reference, booking_status, payment_status,
          customer_name, customer_email, customer_phone, customer_nationality,
-         currency_code, subtotal, total_amount, expires_at, created_at, updated_at)
-       VALUES (?, ?, 'pending_review', 'unpaid', ?, ?, ?, ?, ?, ?, ?,
+         currency_code, subtotal, discount_amount, total_amount, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'pending_review', 'unpaid', ?, ?, ?, ?, ?, ?, ?, ?,
          DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE), UTC_TIMESTAMP(), UTC_TIMESTAMP())`,
       [
-        payload.userId,
+        payload.userId || null,
         bookingRef(),
         payload.customerName,
         payload.customerEmail,
@@ -134,7 +153,8 @@ async function createBooking(payload) {
         payload.customerNationality || null,
         currency,
         subtotal,
-        subtotal,
+        discount,
+        total,
         minutes
       ]
     );
@@ -176,8 +196,8 @@ async function createBooking(payload) {
     await queueBookingEmail(connection, bookingId, "booking_received", { hold_minutes: String(minutes) });
     await connection.query(
       `UPDATE booking_idempotency_keys SET booking_id = ?
-        WHERE user_id = ? AND idempotency_key = ?`,
-      [bookingId, payload.userId, payload.idempotencyKey]
+        WHERE ${ownerSql} AND idempotency_key = ?`,
+      [bookingId, ...ownerParams, payload.idempotencyKey]
     );
 
     const [created] = await connection.query(

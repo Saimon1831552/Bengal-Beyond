@@ -18,6 +18,7 @@ const HINTS = {
   booking_cancellation_window_hours: "Stored only. Not applied yet.",
   booking_cancellation_fee_percent: "Stored only. Not applied yet.",
   max_booking_party_size: "Enforced when a booking is created (needs backend patch 0.4).",
+  member_discount_percent: "Automatic discount for logged-in customers at booking. Guests get none.",
   maintenance_mode: "Blocks the public site and API for visitors. Admin pages and login keep working.",
   maintenance_message: "Shown to visitors in a banner while maintenance mode is on.",
 };

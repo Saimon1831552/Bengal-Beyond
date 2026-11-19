@@ -16,11 +16,14 @@ export default function BookingWizard() {
   const router = useRouter();
   const slug = useSearchParams().get("tour");
   const user = useAuthStore((s) => s.user);
+  const status = useAuthStore((s) => s.status);
 
   const [tour, setTour] = useState(null);
   const [deps, setDeps] = useState([]);
   const [loading, setLoading] = useState(!!slug);
   const [loadErr, setLoadErr] = useState(null);
+  const [pct, setPct] = useState(0);
+  const [done, setDone] = useState(null); // guest confirmation
 
   const [depId, setDepId] = useState(null);
   const [qty, setQty] = useState(1);
@@ -57,14 +60,32 @@ export default function BookingWizard() {
     setTravelers((t) => [{ ...t[0], traveler_name: user.fullName || "", nationality: user.nationality || "" }, ...t.slice(1)]);
   }, [user]);
 
+  useEffect(() => {
+    api.get("/site-info").then((r) => setPct(Number(r.data?.data?.member_discount_percent) || 0)).catch(() => {});
+  }, []);
+
   if (!slug) return <Container as="main" className="py-10"><Empty>Choose a tour first. <Link href="/tours" className="font-semibold text-primary underline">Browse tours</Link></Empty></Container>;
   if (loading) return <Container className="py-10"><Loading /></Container>;
   if (loadErr) return <Container className="py-10"><ErrorBox error={loadErr} /></Container>;
+  if (done) {
+    return (
+      <Container as="main" className="max-w-xl py-14">
+        <div className="rounded-3xl border border-border bg-white p-8 text-center">
+          <h1 className="text-3xl text-primary">Booking received</h1>
+          <p className="mt-3 text-muted">Your reference is <strong>{done.booking_reference}</strong>. We sent the details to {done.customer_email}. Our team will review it and contact you to arrange payment.</p>
+          <p className="mt-4 text-sm text-muted">Keep this reference. Create an account with the same email to manage future bookings and get member discounts.</p>
+          <Link href="/register" className="btn-gold mt-6 inline-block rounded-full px-6 py-3 font-semibold">Create account</Link>
+        </div>
+      </Container>
+    );
+  }
 
   const dep = deps.find((d) => d.id === depId);
   const maxQty = dep ? Math.min(20, Number(dep.seats_available)) : 20;
   const unit = dep ? Number(dep.price_override ?? tour.base_price) : Number(tour.base_price);
-  const total = unit * qty;
+  const subtotal = unit * qty;
+  const discount = user ? Math.round(subtotal * pct) / 100 : 0;
+  const total = subtotal - discount;
 
   const changeQty = (n) => {
     const q = Math.max(1, Math.min(maxQty, n));
@@ -93,7 +114,9 @@ export default function BookingWizard() {
     setBusy(true); setError("");
     try {
       const res = await api.post("/bookings", payload, { headers: { "Idempotency-Key": keyRef.current.key } });
-      router.push(`/bookings/${res.data.booking.id}`); // NOTE: this endpoint returns {booking} at top level, not under data
+      const bk = res.data.booking;
+      if (user) router.push(`/bookings/${bk.id}`);
+      else setDone(bk);
     } catch (err) { setError(errMsg(err)); }
     finally { setBusy(false); }
   };
@@ -103,6 +126,13 @@ export default function BookingWizard() {
     <Container as="main" className="py-8">
       <Link href={`/tours/${tour.slug}`} className="text-sm text-accent link-underline">← {tour.title}</Link>
       <h1 className="mt-3 text-3xl text-primary">Book: {tour.title}</h1>
+      {status === "guest" && pct > 0 && (
+        <p className="mt-3 rounded-2xl bg-gold/15 p-4 text-sm text-primary-dark">
+          Members save {pct}% on every booking.{" "}
+          <Link href={`/sign-in?next=${encodeURIComponent(`/booking?tour=${tour.slug}`)}`} className="font-semibold underline">Sign in</Link>{" or "}
+          <Link href="/register" className="font-semibold underline">create an account</Link>. You can also continue as a guest.
+        </p>
+      )}
 
       <form onSubmit={submit} className="mt-8 grid gap-8 lg:grid-cols-[1fr_320px]">
         <div className="space-y-6">
@@ -164,14 +194,15 @@ export default function BookingWizard() {
           <p className="text-sm text-muted">{dep ? `${formatDate(dep.starts_at)} – ${formatDate(dep.ends_at)}` : "Choose a departure"}</p>
           {dep ? (
             <>
-              <div className="flex justify-between text-sm"><span>{qty} × {money(unit, tour.currency_code)}</span><span>{money(total, tour.currency_code)}</span></div>
+              <div className="flex justify-between text-sm"><span>{qty} × {money(unit, tour.currency_code)}</span><span>{money(subtotal, tour.currency_code)}</span></div>
+              {discount > 0 && <div className="flex justify-between text-sm text-accent"><span>Member discount ({pct}%)</span><span>−{money(discount, tour.currency_code)}</span></div>}
               <div className="flex justify-between border-t border-border pt-3 text-lg font-semibold text-primary"><span>Estimated total</span><span>{money(total, tour.currency_code)}</span></div>
             </>
           ) : <p className="text-sm text-muted">Select an available departure to see the total.</p>}
           <p className="text-xs text-muted">Seats are held for 15 minutes after you reserve. You can apply a coupon and pay on the next page. The final total is calculated by our server.</p>
           {error && <p role="alert" className="text-sm text-terracotta">{error}</p>}
           {!deps.length && <p role="status" className="text-sm text-terracotta">No upcoming departures with seats are available, so you can’t reserve this tour right now. Please contact us or check back later.</p>}
-          <button disabled={busy || !deps.length} className="btn-gold w-full rounded-full px-6 py-3 font-semibold disabled:opacity-60">{busy ? "Reserving…" : deps.length ? "Reserve seats" : "No departures available"}</button>
+          <button disabled={busy || !deps.length || status === "loading"} className="btn-gold w-full rounded-full px-6 py-3 font-semibold disabled:opacity-60">{busy ? "Reserving…" : deps.length ? "Reserve seats" : "No departures available"}</button>
         </aside>
       </form>
     </Container>

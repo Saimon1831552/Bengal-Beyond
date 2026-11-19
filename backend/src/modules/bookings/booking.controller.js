@@ -2,8 +2,7 @@ const service = require("./booking.service");
 function bad(message) { const e = new Error(message); e.statusCode = 400; return e; }
 exports.createBooking = async (req, res, next) => {
   try {
-    const userId = req.user && (req.user.id || req.user.user_id);
-    if (!userId) return res.status(401).json({ success: false, message: "Authentication required" });
+    const userId = req.user ? (req.user.id || req.user.user_id) : null; // guests allowed
     const key = req.get("Idempotency-Key");
     if (!key || key.length < 8 || key.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(key)) throw bad("Provide a valid Idempotency-Key (8–128 characters)");
     const departureId = Number(req.body && req.body.departure_id);
@@ -36,7 +35,7 @@ exports.createBooking = async (req, res, next) => {
       return { traveler_name, traveler_type, nationality };
     });
     const result = await service.createBooking({
-      userId: Number(userId),
+      userId: userId ? Number(userId) : null,
       idempotencyKey: key,
       departureId,
       quantity,

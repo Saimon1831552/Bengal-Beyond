@@ -24,4 +24,12 @@ const publicEnquiry = rateLimit({
   message: { success: false, message: "Too many enquiries. Please try again later." }
 });
 
-module.exports = { standard, auth, publicEnquiry };
+const bookingCreate = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { success: false, message: "Too many booking attempts. Please try again later." }
+});
+
+module.exports = { standard, auth, publicEnquiry, bookingCreate };

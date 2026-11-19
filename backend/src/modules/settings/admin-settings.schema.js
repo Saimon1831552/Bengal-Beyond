@@ -12,6 +12,7 @@ const settingKeys = [
   "booking_cancellation_window_hours",
   "booking_cancellation_fee_percent",
   "max_booking_party_size",
+  "member_discount_percent",
   "maintenance_mode",
   "maintenance_message",
 ];
