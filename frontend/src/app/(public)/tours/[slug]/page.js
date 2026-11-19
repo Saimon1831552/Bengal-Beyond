@@ -45,11 +45,21 @@ export default async function TourPage({ params }) {
           <h1 className="mt-6 text-4xl text-primary md:text-5xl">{t.title}</h1>
           <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
             <span>{t.days} {t.days === 1 ? "day" : "days"}</span>
-            <span>{t.category}</span>
+            {t.destination && <span>{t.destination}</span>}
+            {t.categories.map((category) => <span key={category}>{category}</span>)}
+            {t.tags.map((tag) => <span key={tag}>#{tag}</span>)}
             {total > 0 && <a href="#reviews" className="flex items-center gap-2 text-primary"><Stars value={averageRating} /> {averageRating} ({total})</a>}
           </p>
           {t.summary && <p className="mt-5 text-lg text-foreground/80">{t.summary}</p>}
           <div className="mt-6 space-y-4 text-muted">{paragraphs.map((p, i) => <p key={i}>{p}</p>)}</div>
+          {t.cancellationPolicy && (
+            <section className="mt-8">
+              <h2 className="text-xl font-semibold text-primary">Cancellation policy</h2>
+              <div className="mt-3 space-y-3 whitespace-pre-line text-muted">
+                {t.cancellationPolicy.split(/\n{2,}/).filter(Boolean).map((p, i) => <p key={i}>{p}</p>)}
+              </div>
+            </section>
+          )}
           {t.destinations.length > 0 && (
             <p className="mt-6 text-sm">Destinations: {t.destinations.map((s) => <Link key={s} href={`/destinations/${s}`} className="mr-2 font-semibold text-accent underline">{s.replace(/-/g, " ")}</Link>)}</p>
           )}

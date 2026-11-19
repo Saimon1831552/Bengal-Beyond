@@ -41,9 +41,20 @@ async function list(filters, { limit, offset }) {
 async function findPublishedBySlug(slug) {
   const [rows] = await pool.execute(
     `SELECT t.id, t.slug, t.title, t.summary, t.description, t.destination,
+            d.slug AS destination_slug,
             t.duration_days, t.base_price, t.currency_code, t.cover_image_url,
-            t.cancellation_policy, t.created_at, t.updated_at
-       FROM tours t WHERE t.slug = ? AND t.status = 'published' AND t.deleted_at IS NULL LIMIT 1`,
+            t.cancellation_policy, t.created_at, t.updated_at,
+            (SELECT GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR ', ')
+                FROM tour_category_assignments ca
+                JOIN tour_categories c ON c.id = ca.category_id AND c.status = 'active'
+               WHERE ca.tour_id = t.id) AS categories,
+            (SELECT GROUP_CONCAT(DISTINCT tg.name ORDER BY tg.name SEPARATOR ', ')
+                FROM tour_tag_assignments ta
+                JOIN tour_tags tg ON tg.id = ta.tag_id AND tg.status = 'active'
+               WHERE ta.tour_id = t.id) AS tags
+       FROM tours t
+       LEFT JOIN destinations d ON d.id = t.destination_id AND d.status = 'published'
+       WHERE t.slug = ? AND t.status = 'published' AND t.deleted_at IS NULL LIMIT 1`,
     [slug],
   );
   return rows[0] || null;

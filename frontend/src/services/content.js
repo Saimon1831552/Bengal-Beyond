@@ -5,11 +5,12 @@
 
 const API = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api").replace(/\/+$/, "");
 const REVALIDATE = 3600;
+const TOUR_REVALIDATE = 300;
 
-async function api(path) {
+async function api(path, revalidate = REVALIDATE) {
   const res = await fetch(`${API}${path}`, {
     headers: { Accept: "application/json" },
-    next: { revalidate: REVALIDATE },
+    next: { revalidate },
   });
   // Missing or malformed slug -> treat as "not found" so pages call notFound()
   if ([400, 404, 422].includes(res.status)) return null;
@@ -79,15 +80,21 @@ function mapDestination(r) {
 }
 
 function mapTour(r, destinationSlugs = []) {
+  const categories = r.categories ? String(r.categories).split(", ") : [];
+  const tags = r.tags ? String(r.tags).split(", ") : [];
   return {
     id: r.id,
     slug: r.slug,
     title: r.title,
-    category: r.destination, // no category on the tour row; show destination for now
+    category: categories[0] || r.destination,
+    categories,
+    tags,
+    destination: r.destination,
     days: r.duration_days,
     destinations: destinationSlugs,
     summary: r.summary || "",
     description: r.description || null,
+    cancellationPolicy: r.cancellation_policy || "",
     image: r.cover_image_url || undefined,
     price: r.base_price != null ? Number(r.base_price) : undefined,
     currency: r.currency_code,
@@ -135,14 +142,14 @@ export async function getDestination(slug) {
 }
 
 export async function getToursByDestination(slug) {
-  const data = await api(`/destinations/${encodeURIComponent(slug)}/tours?limit=100`);
+  const data = await api(`/destinations/${encodeURIComponent(slug)}/tours?limit=100`, TOUR_REVALIDATE);
   return (data?.items ?? []).map((r) => mapTour(r, [slug]));
 }
 
 /* ---------- tours ---------- */
 
 export async function getTours() {
-  const data = await api("/tours?limit=100");
+  const data = await api("/tours?limit=100", TOUR_REVALIDATE);
   return (data ?? []).map((r) => mapTour(r));
 }
 
@@ -160,12 +167,9 @@ export async function getCategories() {
 }
 
 export async function getTour(slug) {
-  const r = await api(`/tours/${encodeURIComponent(slug)}`);
+  const r = await api(`/tours/${encodeURIComponent(slug)}`, TOUR_REVALIDATE);
   if (!r) return null;
-  // Tour detail only has the destination NAME, so match it to a destination slug
-  const destinations = await getDestinations();
-  const match = destinations.find((d) => d.name.trim().toLowerCase() === String(r.destination).trim().toLowerCase());
-  return mapTour(r, match ? [match.slug] : []);
+  return mapTour(r, r.destination_slug ? [r.destination_slug] : []);
 }
 
 /* ---------- blog ---------- */
