@@ -10,8 +10,12 @@ function getTransporter() {
   transporter = nodemailer.createTransport({
     host: env.SMTP_HOST,
     port: env.SMTP_PORT,
-    secure: env.SMTP_PORT === 465,
+    secure: env.SMTP_PORT === 465, // 465 = implicit TLS
+    requireTLS: env.SMTP_PORT !== 465 && env.SMTP_REQUIRE_TLS, // 587 = STARTTLS, never plaintext
     auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
   });
   return transporter;
 }
@@ -32,4 +36,10 @@ async function sendMail({ to, subject, text }) {
   return { messageId: info.messageId };
 }
 
-module.exports = { sendActionEmail, sendMail };
+// Checks host, port, TLS and credentials without sending anything.
+async function verifyConnection() {
+  await getTransporter().verify();
+  return true;
+}
+
+module.exports = { sendActionEmail, sendMail, verifyConnection };

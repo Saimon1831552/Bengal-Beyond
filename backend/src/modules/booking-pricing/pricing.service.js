@@ -36,7 +36,7 @@ function computeDiscount(coupon, subtotalCents) {
 async function loadOwnedBooking(conn, bookingId, userId) {
   const [[booking]] = await conn.execute(
     `SELECT id, user_id, booking_status, payment_status, currency_code,
-            subtotal, discount_amount, tax_amount, total_amount
+            subtotal, discount_amount, member_discount_amount, tax_amount, total_amount
        FROM bookings WHERE id = ? FOR UPDATE`, [bookingId]);
   if (!booking) fail("Booking not found", 404);
   if (String(booking.user_id) !== String(userId)) fail("Booking does not belong to the authenticated customer", 403);
@@ -86,9 +86,10 @@ async function applyCoupon({ bookingId, userId, code }) {
     // Lock the coupon row to serialize competing reservations against its usage limits.
     const [[coupon]] = await conn.execute("SELECT * FROM coupons WHERE code = ? FOR UPDATE", [code]);
     await checkCoupon(conn, coupon, booking, userId, bookingId);
-    const discountCents = computeDiscount(coupon, cents(booking.subtotal));
-    if (discountCents <= 0) fail("Coupon does not produce a discount for this booking", 409);
-    const amounts = totals(booking, discountCents);
+    const memberCents = cents(booking.member_discount_amount);
+    const couponCents = computeDiscount(coupon, cents(booking.subtotal) - memberCents);
+    if (couponCents <= 0) fail("Coupon does not produce a discount for this booking", 409);
+    const amounts = totals(booking, memberCents + couponCents);
 
     const [[existing]] = await conn.execute(
       "SELECT id, coupon_id, status FROM coupon_redemptions WHERE booking_id = ? FOR UPDATE",
@@ -99,13 +100,13 @@ async function applyCoupon({ bookingId, userId, code }) {
         `UPDATE coupon_redemptions
             SET coupon_id = ?, user_id = ?, discount_amount = ?, status = 'reserved'
           WHERE id = ?`,
-        [coupon.id, userId, amounts.discountAmount, existing.id]);
+        [coupon.id, userId, money(couponCents), existing.id]);
     } else {
       await conn.execute(
         `INSERT INTO coupon_redemptions
           (coupon_id, booking_id, user_id, discount_amount, status)
          VALUES (?, ?, ?, ?, 'reserved')`,
-        [coupon.id, bookingId, userId, amounts.discountAmount]);
+        [coupon.id, bookingId, userId, money(couponCents)]);
     }
     await conn.execute(
       `UPDATE bookings SET discount_amount = ?, total_amount = ? WHERE id = ?`,
@@ -116,6 +117,8 @@ async function applyCoupon({ bookingId, userId, code }) {
       coupon: { id: Number(coupon.id), code: coupon.code, discountType: coupon.discount_type },
       currencyCode: booking.currency_code,
       subtotal: money(cents(booking.subtotal)),
+      memberDiscount: money(memberCents),
+      couponDiscount: money(couponCents),
       discountAmount: amounts.discountAmount,
       taxAmount: money(cents(booking.tax_amount)),
       totalAmount: amounts.totalAmount,
@@ -136,14 +139,15 @@ async function removeCoupon({ bookingId, userId }) {
       };
     }
     if (redemption.status === "redeemed") fail("A redeemed coupon cannot be removed", 409);
-    const amount = totals(booking, 0);
+    const memberCents = cents(booking.member_discount_amount);
+    const amount = totals(booking, memberCents);
     await conn.execute("UPDATE coupon_redemptions SET status = 'released' WHERE id = ?", [redemption.id]);
     await conn.execute(
-      "UPDATE bookings SET discount_amount = '0.00', total_amount = ? WHERE id = ?",
-      [amount.totalAmount, bookingId]);
+      "UPDATE bookings SET discount_amount = ?, total_amount = ? WHERE id = ?",
+      [amount.discountAmount, amount.totalAmount, bookingId]);
     return {
       bookingId: Number(bookingId), currencyCode: booking.currency_code,
-      subtotal: money(cents(booking.subtotal)), discountAmount: "0.00",
+      subtotal: money(cents(booking.subtotal)), discountAmount: amount.discountAmount,
       taxAmount: money(cents(booking.tax_amount)), totalAmount: amount.totalAmount,
       couponRemoved: true
     };
@@ -169,14 +173,14 @@ async function releaseCoupon(conn, bookingId) {
 // Use this within the same transaction as that price change; never accept amounts from the client.
 async function recalculateBooking(conn, bookingId) {
   const [[booking]] = await conn.execute(
-    `SELECT subtotal, tax_amount FROM bookings WHERE id = ? FOR UPDATE`, [bookingId]);
+    `SELECT subtotal, member_discount_amount, tax_amount FROM bookings WHERE id = ? FOR UPDATE`, [bookingId]);
   if (!booking) fail("Booking not found", 404);
   const [[redemption]] = await conn.execute(
     `SELECT discount_amount, status FROM coupon_redemptions
       WHERE booking_id = ? FOR UPDATE`, [bookingId]);
-  const discount = redemption && ["reserved", "redeemed"].includes(redemption.status)
+  const couponCents = redemption && ["reserved", "redeemed"].includes(redemption.status)
     ? cents(redemption.discount_amount) : 0;
-  const result = totals(booking, discount);
+  const result = totals(booking, cents(booking.member_discount_amount) + couponCents);
   await conn.execute(
     "UPDATE bookings SET discount_amount = ?, total_amount = ? WHERE id = ?",
     [result.discountAmount, result.totalAmount, bookingId]);

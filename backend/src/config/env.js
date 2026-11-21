@@ -14,6 +14,8 @@ const env = {
   SMTP_USER: process.env.SMTP_USER,
   SMTP_PASSWORD: process.env.SMTP_PASSWORD,
   MAIL_FROM: process.env.MAIL_FROM,
+  // Force STARTTLS on port 587 (Mailtrap requires TLS). Set to "false" only for local dev servers.
+  SMTP_REQUIRE_TLS: process.env.SMTP_REQUIRE_TLS !== "false",
 
   FRONTEND_URL:
     process.env.FRONTEND_URL || "http://localhost:3000",

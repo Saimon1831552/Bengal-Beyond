@@ -109,7 +109,10 @@ test("guest bookings have no member discount and use null-owner idempotency quer
   assert.equal(bookingInsert.params[0], null);
   assert.equal(bookingInsert.params[7], 200.5);
   assert.equal(bookingInsert.params[8], 0);
-  assert.equal(bookingInsert.params[9], 200.5);
+  assert.equal(bookingInsert.params[9], 0);
+  assert.equal(bookingInsert.params[10], 200.5);
+  assert.match(bookingInsert.sql, /member_discount_amount/);
+  assert.equal((bookingInsert.sql.match(/\?/g) || []).length, bookingInsert.params.length);
   assert.match(idempotencyUpdate.sql, /WHERE user_id IS NULL AND idempotency_key/);
   assert.deepEqual(idempotencyUpdate.params, [bookingId, "booking-key-001"]);
   assert.equal(connection.calls.some((call) => call.sql.includes("SELECT setting_value")), false);
@@ -126,14 +129,49 @@ test("guest bookings have no member discount and use null-owner idempotency quer
   assert.deepEqual(replayLookup.params, [bookingId]);
 });
 
+test("guest booking holds default to 24 hours and configured values are clamped", async () => {
+  const previous = process.env.GUEST_BOOKING_HOLD_MINUTES;
+  try {
+    delete process.env.GUEST_BOOKING_HOLD_MINUTES;
+    const defaults = makeConnection();
+    await createWithConnection(defaults, payload(null));
+    const defaultBookingInsert = defaults.calls.find((call) => call.sql.startsWith("INSERT INTO bookings"));
+    const defaultHoldInsert = defaults.calls.find((call) => call.sql.startsWith("INSERT INTO seat_holds"));
+    assert.equal(defaultBookingInsert.params[11], 1440);
+    assert.equal(defaultHoldInsert.params[3], 1440);
+
+    for (const [configured, expected] of [["30", 60], ["20000", 10080]]) {
+      process.env.GUEST_BOOKING_HOLD_MINUTES = configured;
+      const connection = makeConnection();
+      await createWithConnection(connection, payload(null));
+      const bookingInsert = connection.calls.find((call) => call.sql.startsWith("INSERT INTO bookings"));
+      const holdInsert = connection.calls.find((call) => call.sql.startsWith("INSERT INTO seat_holds"));
+      assert.equal(bookingInsert.params[11], expected);
+      assert.equal(holdInsert.params[3], expected);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.GUEST_BOOKING_HOLD_MINUTES;
+    else process.env.GUEST_BOOKING_HOLD_MINUTES = previous;
+  }
+});
+
 test("member discount is read from settings and applied using cent-based rounding", async () => {
+  const previousHoldMinutes = process.env.BOOKING_HOLD_MINUTES;
+  process.env.BOOKING_HOLD_MINUTES = "15";
   const connection = makeConnection({ settingRows: [[{ setting_value: "10" }], []] });
-  await createWithConnection(connection, payload(9));
+  try {
+    await createWithConnection(connection, payload(9));
+  } finally {
+    if (previousHoldMinutes === undefined) delete process.env.BOOKING_HOLD_MINUTES;
+    else process.env.BOOKING_HOLD_MINUTES = previousHoldMinutes;
+  }
 
   const bookingInsert = connection.calls.find((call) => call.sql.startsWith("INSERT INTO bookings"));
   assert.equal(bookingInsert.params[7], 200.5);
   assert.equal(bookingInsert.params[8], 20.05);
-  assert.equal(bookingInsert.params[9], 180.45);
+  assert.equal(bookingInsert.params[9], 20.05);
+  assert.equal(bookingInsert.params[10], 180.45);
+  assert.equal(bookingInsert.params[11], 15);
   const itemInsert = connection.calls.find((call) => call.sql.startsWith("INSERT INTO booking_items"));
   assert.equal(itemInsert.params[5], 200.5);
 });
@@ -144,5 +182,6 @@ test("members use the default five percent discount when no setting row exists",
 
   const bookingInsert = connection.calls.find((call) => call.sql.startsWith("INSERT INTO bookings"));
   assert.equal(bookingInsert.params[8], 10.03);
-  assert.equal(bookingInsert.params[9], 190.47);
+  assert.equal(bookingInsert.params[9], 10.03);
+  assert.equal(bookingInsert.params[10], 190.47);
 });

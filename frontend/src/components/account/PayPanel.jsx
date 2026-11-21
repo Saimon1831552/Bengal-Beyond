@@ -30,7 +30,7 @@ export default function PayPanel({ booking: b, reload }) {
   const payable = ["unpaid", "failed", "pending"].includes(b.payment_status);
   if (!open || !payable) return null;
 
-  const hasCoupon = Number(b.discount_amount) > 0;
+  const hasCoupon = Number(b.discount_amount) > Number(b.member_discount_amount || 0);
   const notBdt = b.currency_code !== "BDT";
 
   const run = async (name, fn) => {

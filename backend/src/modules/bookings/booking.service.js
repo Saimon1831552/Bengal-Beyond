@@ -7,6 +7,11 @@ function holdMinutes() {
   return Number.isInteger(n) ? Math.min(60, Math.max(5, n)) : 15;
 }
 
+function guestHoldMinutes() {
+  const n = Number.parseInt(process.env.GUEST_BOOKING_HOLD_MINUTES, 10);
+  return Number.isInteger(n) ? Math.min(10080, Math.max(60, n)) : 1440; // default 24h
+}
+
 function appError(statusCode, message) {
   const error = new Error(message);
   error.statusCode = statusCode;
@@ -41,7 +46,8 @@ async function memberDiscountPercent(conn) {
 
 const BOOKING_FIELDS = `id, booking_reference, booking_status, payment_status,
   customer_name, customer_email, customer_phone, customer_nationality,
-  currency_code, subtotal, discount_amount, total_amount, expires_at, created_at`;
+  currency_code, subtotal, discount_amount, member_discount_amount,
+  total_amount, expires_at, created_at`;
 
 async function createBooking(payload) {
   const hash = payloadHash(payload);
@@ -134,15 +140,16 @@ async function createBooking(payload) {
     const subtotal = subtotalCents / 100;
     const discount = discountCents / 100;
     const total = (subtotalCents - discountCents) / 100;
-    const minutes = holdMinutes();
+    const minutes = payload.userId ? holdMinutes() : guestHoldMinutes();
     const currency = departure.currency_code || "BDT";
 
     const [bookingResult] = await connection.query(
       `INSERT INTO bookings
         (user_id, booking_reference, booking_status, payment_status,
          customer_name, customer_email, customer_phone, customer_nationality,
-         currency_code, subtotal, discount_amount, total_amount, expires_at, created_at, updated_at)
-       VALUES (?, ?, 'pending_review', 'unpaid', ?, ?, ?, ?, ?, ?, ?, ?,
+         currency_code, subtotal, discount_amount, member_discount_amount, total_amount,
+         expires_at, created_at, updated_at)
+       VALUES (?, ?, 'pending_review', 'unpaid', ?, ?, ?, ?, ?, ?, ?, ?, ?,
          DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE), UTC_TIMESTAMP(), UTC_TIMESTAMP())`,
       [
         payload.userId || null,
@@ -153,6 +160,7 @@ async function createBooking(payload) {
         payload.customerNationality || null,
         currency,
         subtotal,
+        discount,
         discount,
         total,
         minutes

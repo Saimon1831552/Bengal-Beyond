@@ -34,6 +34,14 @@ async function queueBookingEmail(conn, bookingId, templateKey, extra = {}, keySu
     for (const k of ["amount", "refund_amount"]) {
       if (extras[k] != null) extras[k] = fmtMoney(extras[k], b.currency_code);
     }
+    const member = Boolean(b.user_id);
+    const url = `${baseUrl()}/bookings/${b.id}`;
+    const viewLine = member
+      ? `View your booking: ${url}`
+      : `Questions? Contact us: ${baseUrl()}/contact`;
+    const nextStep = member
+      ? `Please complete your payment within ${extras.hold_minutes || 15} minutes to keep your seats: ${url}`
+      : "Our team will review your booking and contact you by email or phone to arrange payment.";
     const payload = {
       name: b.customer_name,
       booking_reference: b.booking_reference,
@@ -41,7 +49,9 @@ async function queueBookingEmail(conn, bookingId, templateKey, extra = {}, keySu
       departure_date: fmtDate(it?.starts_at),
       travellers: String(it?.quantity ?? ""),
       total: fmtMoney(b.total_amount, b.currency_code),
-      booking_url: `${baseUrl()}/bookings/${b.id}`,
+      booking_url: url,
+      view_line: viewLine,
+      next_step: nextStep,
       ...extras,
     };
     await enqueue({

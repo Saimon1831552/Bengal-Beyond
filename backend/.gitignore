@@ -14,6 +14,7 @@ database/migrations/*
 !database/migrations/00510_customer_support_enquiries.sql
 !database/migrations/00511_notification_delivery.sql
 !database/migrations/0063_guest_booking_idempotency.sql
+!database/migrations/0064_member_discount_amount.sql
 coverage/
 dist/
 "@ | Set-Content .gitignore

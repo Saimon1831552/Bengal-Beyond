@@ -60,7 +60,8 @@ async function remove(id) {
 async function validateForBooking({ code, bookingId, userId }) {
   return withTransaction(async (conn) => {
     const [[booking]] = await conn.execute(
-      `SELECT id, user_id, subtotal, discount_amount, tax_amount, total_amount, booking_status
+      `SELECT id, user_id, subtotal, discount_amount, member_discount_amount,
+              tax_amount, total_amount, booking_status
        FROM bookings WHERE id = ? FOR UPDATE`, [bookingId]);
     if (!booking) err("Booking not found", 404);
     if (booking.user_id !== userId) err("Booking does not belong to the authenticated customer", 403);
@@ -82,13 +83,14 @@ async function validateForBooking({ code, bookingId, userId }) {
       `SELECT COUNT(*) AS total FROM coupon_redemptions
        WHERE coupon_id = ? AND user_id = ? AND status IN ('reserved','redeemed')`, [coupon.id, userId]);
     if (Number(userUsage.total) >= Number(coupon.per_user_limit)) err("Your coupon usage limit has been reached", 409);
+    const base = Number(booking.subtotal) - Number(booking.member_discount_amount);
     let discount = coupon.discount_type === "percentage"
-      ? Number(booking.subtotal) * Number(coupon.discount_value) / 100
+      ? base * Number(coupon.discount_value) / 100
       : Number(coupon.discount_value);
     if (coupon.max_discount_amount !== null) discount = Math.min(discount, Number(coupon.max_discount_amount));
-    discount = Math.min(discount, Number(booking.subtotal));
+    discount = Math.min(discount, base);
     discount = Math.round((discount + Number.EPSILON) * 100) / 100;
-    const totalAfterDiscount = Math.max(0, Number(booking.subtotal) - discount + Number(booking.tax_amount));
+    const totalAfterDiscount = Math.max(0, base - discount + Number(booking.tax_amount));
     return {
       valid: true, coupon: { id: coupon.id, code: coupon.code, discountType: coupon.discount_type },
       subtotal: booking.subtotal, discountAmount: discount.toFixed(2),

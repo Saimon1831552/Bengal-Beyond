@@ -144,6 +144,7 @@ CREATE TABLE `bookings` (
   `currency_code` char(3) NOT NULL DEFAULT 'USD',
   `subtotal` decimal(12,2) NOT NULL,
   `discount_amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `member_discount_amount` decimal(12,2) NOT NULL DEFAULT 0.00,
   `tax_amount` decimal(12,2) NOT NULL DEFAULT 0.00,
   `total_amount` decimal(12,2) NOT NULL,
   `special_requests` text DEFAULT NULL,
