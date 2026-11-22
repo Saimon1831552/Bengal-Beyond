@@ -2,6 +2,17 @@ const { pool, withTransaction } = require("../../config/db");
 const { releaseCoupon } = require("../booking-pricing/pricing.service");
 const { queueBookingEmail } = require("../notifications/booking-events");
 
+const LIST_SELECT = `SELECT b.id, b.booking_reference, b.booking_status, b.payment_status,
+    b.customer_name, b.customer_email, b.customer_phone, b.currency_code,
+    b.subtotal, b.discount_amount, b.total_amount, b.created_at,
+    (b.user_id IS NULL) AS is_guest,
+    (SELECT COALESCE(SUM(bi.quantity), 0) FROM booking_items bi WHERE bi.booking_id = b.id) AS travelers,
+    (SELECT JSON_UNQUOTE(JSON_EXTRACT(bi.tour_snapshot, '$.title')) FROM booking_items bi
+      WHERE bi.booking_id = b.id ORDER BY bi.id LIMIT 1) AS tour_title,
+    (SELECT td.starts_at FROM booking_items bi JOIN tour_departures td ON td.id = bi.departure_id
+      WHERE bi.booking_id = b.id ORDER BY bi.id LIMIT 1) AS departs_at
+  FROM bookings b`;
+
 async function list(filters) {
   const where = [];
   const params = {};
@@ -98,4 +109,29 @@ async function addNote(id, adminId, note, visibility) {
   return created;
 }
 
-module.exports = { list, findById, updateStatus, addNote };
+async function summary() {
+  const [[c]] = await pool.execute(
+    `SELECT
+       COALESCE(SUM(created_at >= UTC_DATE()), 0) AS today,
+       COALESCE(SUM(created_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY), 0) AS last_7_days,
+       COALESCE(SUM(booking_status = 'pending_review'), 0) AS pending_review,
+       COALESCE(SUM(booking_status = 'awaiting_payment'), 0) AS awaiting_payment,
+       COALESCE(SUM(user_id IS NULL AND created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY), 0) AS guest_30d,
+       COALESCE(SUM(user_id IS NOT NULL AND created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY), 0) AS member_30d
+     FROM bookings`);
+  const [discounts] = await pool.execute(
+    `SELECT currency_code, SUM(discount_amount) AS amount FROM bookings
+      WHERE created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY
+        AND booking_status NOT IN ('rejected','cancelled','expired')
+      GROUP BY currency_code HAVING SUM(discount_amount) > 0`);
+  const [latest] = await pool.execute(`${LIST_SELECT} ORDER BY b.created_at DESC, b.id DESC LIMIT 10`);
+  const [needsAction] = await pool.execute(
+    `${LIST_SELECT} WHERE b.booking_status = 'pending_review' ORDER BY b.created_at ASC, b.id ASC LIMIT 8`);
+  return {
+    counts: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, Number(v)])),
+    discounts30d: discounts.map((d) => ({ currencyCode: d.currency_code, amount: String(d.amount) })),
+    latest, needsAction,
+  };
+}
+
+module.exports = { list, findById, updateStatus, addNote, summary };

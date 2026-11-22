@@ -14,4 +14,5 @@ const list = asyncHandler(async (req, res) => res.json({ success: true, data: aw
 const get = asyncHandler(async (req, res) => res.json({ success: true, data: await service.get(Number(req.params.id)) }));
 const changeStatus = asyncHandler(async (req, res) => res.json({ success: true, data: await service.changeStatus(Number(req.params.id), parse(statusBody, req.body), req.user || req.auth?.user) }));
 const addNote = asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await service.note(Number(req.params.id), parse(noteBody, req.body), req.user || req.auth?.user) }));
-module.exports = { list, get, changeStatus, addNote };
+const summary = asyncHandler(async (req, res) => res.json({ success: true, data: await service.summary() }));
+module.exports = { list, get, changeStatus, addNote, summary };

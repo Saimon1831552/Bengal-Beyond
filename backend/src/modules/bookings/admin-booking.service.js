@@ -29,4 +29,7 @@ async function note(id, body, user) {
   if (!created) throw new AppError(404, "BOOKING_NOT_FOUND", "Booking not found");
   return created;
 }
-module.exports = { list, get, changeStatus, note };
+async function summary() {
+  return repository.summary();
+}
+module.exports = { list, get, changeStatus, note, summary };

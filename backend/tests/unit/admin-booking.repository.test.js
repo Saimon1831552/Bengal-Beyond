@@ -3,6 +3,47 @@ const assert = require("node:assert/strict");
 const { pool } = require("../../src/config/db");
 const repository = require("../../src/modules/bookings/admin-booking.repository");
 
+test("summary returns booking counts, discounts, latest bookings, and bookings needing action", async (t) => {
+  const originalExecute = pool.execute;
+  const calls = [];
+  pool.execute = async (sql) => {
+    calls.push(sql);
+    if (sql.includes("AS last_7_days")) {
+      return [[{
+        today: "3",
+        last_7_days: "9",
+        pending_review: "2",
+        awaiting_payment: "1",
+        guest_30d: "4",
+        member_30d: "5",
+      }]];
+    }
+    if (sql.includes("SUM(discount_amount)")) {
+      return [[{ currency_code: "BDT", amount: "120.00" }]];
+    }
+    if (sql.includes("LIMIT 10")) return [[{ id: 1 }]];
+    return [[{ id: 2 }]];
+  };
+  t.after(() => { pool.execute = originalExecute; });
+
+  assert.deepEqual(await repository.summary(), {
+    counts: {
+      today: 3,
+      last_7_days: 9,
+      pending_review: 2,
+      awaiting_payment: 1,
+      guest_30d: 4,
+      member_30d: 5,
+    },
+    discounts30d: [{ currencyCode: "BDT", amount: "120.00" }],
+    latest: [{ id: 1 }],
+    needsAction: [{ id: 2 }],
+  });
+  assert.equal(calls.length, 4);
+  assert.match(calls[2], /ORDER BY b\.created_at DESC, b\.id DESC LIMIT 10/);
+  assert.match(calls[3], /booking_status = 'pending_review'.*ORDER BY b\.created_at ASC, b\.id ASC LIMIT 8/s);
+});
+
 test("cancelling converted bookings releases seats, while expiring unpaid bookings only releases holds", async (t) => {
   const originalGetConnection = pool.getConnection;
   t.after(() => { pool.getConnection = originalGetConnection; });

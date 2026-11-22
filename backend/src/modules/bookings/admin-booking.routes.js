@@ -5,6 +5,7 @@ const controller = require("./admin-booking.controller");
 const router = express.Router();
 
 router.use(authenticate);
+router.get("/summary", authorize("bookings.read"), controller.summary);
 router.get("/", authorize("bookings.read"), controller.list);
 router.get("/:id", authorize("bookings.read"), controller.get);
 router.patch("/:id/status", authorize("bookings.manage"), controller.changeStatus);
