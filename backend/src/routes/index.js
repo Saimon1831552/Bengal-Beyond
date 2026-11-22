@@ -19,6 +19,8 @@ router.use("/tours", require("../modules/tours/tour.routes"));
  router.use("/admin/tours", require("../modules/tours/admin-tour.routes"));
  router.use("/admin", require("../modules/tour-products/tour-products.admin.routes"));
 router.use("/admin", require("../modules/operations/operations.admin.routes"));
+router.use("/admin", require("../modules/finance/finance.admin.routes"));
+router.use("/admin", require("../modules/growth/growth.admin.routes"));
  router.use("/admin/departures", require("../modules/departures/admin-departure.routes"));
  router.use("/admin/bookings", require("../modules/bookings/admin-booking.routes"));
  router.use("/admin/payments", require("../modules/payments/admin-payment.routes"));
