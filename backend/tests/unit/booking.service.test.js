@@ -33,7 +33,12 @@ const departure = {
   deleted_at: null,
 };
 
-function makeConnection({ settingRows = [[], []], priorRows = [], oldBooking = null } = {}) {
+function makeConnection({
+  settingRows = [[], []],
+  priorRows = [],
+  oldBooking = null,
+  addonRows = [],
+} = {}) {
   const calls = [];
   return {
     calls,
@@ -49,12 +54,14 @@ function makeConnection({ settingRows = [[], []], priorRows = [], oldBooking = n
       if (normalizedSql.includes("SELECT d.id")) return [[departure], []];
       if (normalizedSql.includes("SELECT setting_value")) return settingRows;
       if (normalizedSql.includes("SELECT COALESCE(SUM(quantity)")) return [[{ held: 0 }], []];
+      if (normalizedSql.includes("FROM tour_addons")) return [addonRows, []];
       if (normalizedSql.startsWith("INSERT INTO bookings")) {
         return [{
           insertId: bookingId,
           params,
         }, []];
       }
+      if (normalizedSql.startsWith("INSERT INTO booking_items")) return [{ insertId: 501 }, []];
       if (normalizedSql.startsWith("INSERT INTO seat_holds")) return [{ insertId: 71 }, []];
       if (normalizedSql.includes("FROM bookings WHERE id = ?")) {
         return [[{
@@ -77,6 +84,7 @@ function payload(userId) {
     customerEmail: "test@example.com",
     customerPhone: "+880123456789",
     customerNationality: null,
+    addonIds: [],
     travelers: [
       { traveler_name: "Traveller One", traveler_type: "adult", nationality: null },
       { traveler_name: "Traveller Two", traveler_type: "adult", nationality: null },
@@ -184,4 +192,44 @@ test("members use the default five percent discount when no setting row exists",
   assert.equal(bookingInsert.params[8], 10.03);
   assert.equal(bookingInsert.params[9], 10.03);
   assert.equal(bookingInsert.params[10], 190.47);
+});
+
+test("selected add-ons are validated, priced, and persisted in the booking transaction", async () => {
+  const connection = makeConnection({
+    addonRows: [
+      { id: 3, name: "Guide", description: null, price: "10.10", pricing_mode: "per_person" },
+      { id: 4, name: "Transfer", description: "Private car", price: "7.25", pricing_mode: "per_booking" },
+    ],
+  });
+  await createWithConnection(connection, { ...payload(null), addonIds: [3, 4] });
+
+  const addonSelect = connection.calls.find((call) => call.sql.includes("FROM tour_addons"));
+  assert.deepEqual(addonSelect.params, [departure.tour_id, 3, 4]);
+  const bookingInsert = connection.calls.find((call) => call.sql.startsWith("INSERT INTO bookings"));
+  assert.equal(bookingInsert.params[7], 227.95);
+  assert.equal(bookingInsert.params[10], 227.95);
+
+  const itemInsert = connection.calls.find((call) => call.sql.startsWith("INSERT INTO booking_items"));
+  assert.equal(itemInsert.params[5], 200.5);
+  const addonInserts = connection.calls.filter((call) => call.sql.startsWith("INSERT INTO booking_addons"));
+  assert.equal(addonInserts.length, 2);
+  assert.deepEqual(addonInserts.map((call) => call.params.slice(0, 5)), [
+    [501, 3, 2, 10.1, 20.2],
+    [501, 4, 1, 7.25, 7.25],
+  ]);
+  assert.deepEqual(JSON.parse(addonInserts[0].params[5]), {
+    name: "Guide",
+    description: null,
+    pricing_mode: "per_person",
+    price: 10.1,
+  });
+});
+
+test("booking rejects add-ons that are inactive or belong to another tour", async () => {
+  const connection = makeConnection();
+  await assert.rejects(
+    createWithConnection(connection, { ...payload(null), addonIds: [99] }),
+    (error) => error.statusCode === 400 && /selected add-ons are unavailable/.test(error.message)
+  );
+  assert.equal(connection.calls.some((call) => call.sql.startsWith("INSERT INTO bookings")), false);
 });

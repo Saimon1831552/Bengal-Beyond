@@ -17,6 +17,8 @@ import Blogs from "@/components/landing/Blogs";
 import Heritage from "@/components/landing/Heritage";
 import Gallery from "@/components/landing/Gallery";
 import DepthScene from "@/components/landing/DepthScene";
+import TestimonialsSection from "@/components/public/TestimonialsSection";
+
 
 export const metadata = buildMetadata({
   title: { absolute: `${siteConfig.name} | Bangladesh Tours & Travel Experiences` },
@@ -57,6 +59,8 @@ export default async function HomePage() {
       <Blogs posts={blogCards(posts)} />
       <Heritage />
       <Gallery items={gallery} />
+      <TestimonialsSection/>
+     
     </main>
   );
 }

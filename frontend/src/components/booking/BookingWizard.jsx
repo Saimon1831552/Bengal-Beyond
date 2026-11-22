@@ -9,6 +9,7 @@ import api from "@/lib/axios";
 import { useAuthStore } from "@/store/useAuthStore";
 import { money, formatDate } from "@/lib/format";
 import { errMsg } from "@/lib/errors";
+import TourAddonsSelector from "@/components/public/TourAddonsSelector";
 
 const blank = () => ({ traveler_name: "", traveler_type: "adult", nationality: "" });
 
@@ -28,6 +29,8 @@ export default function BookingWizard() {
   const [depId, setDepId] = useState(null);
   const [qty, setQty] = useState(1);
   const [travelers, setTravelers] = useState([blank()]);
+  const [selectedAddonIds, setSelectedAddonIds] = useState([]);
+  const [addonsTotal, setAddonsTotal] = useState(0);
   const [contact, setContact] = useState({ name: "", email: "", phone: "", nationality: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -83,7 +86,7 @@ export default function BookingWizard() {
   const dep = deps.find((d) => d.id === depId);
   const maxQty = dep ? Math.min(20, Number(dep.seats_available)) : 20;
   const unit = dep ? Number(dep.price_override ?? tour.base_price) : Number(tour.base_price);
-  const subtotal = unit * qty;
+  const subtotal = unit * qty + addonsTotal;
   const discount = user ? Math.round(subtotal * pct) / 100 : 0;
   const total = subtotal - discount;
 
@@ -101,6 +104,7 @@ export default function BookingWizard() {
     const payload = {
       departure_id: dep.id,
       quantity: qty,
+      addon_ids: selectedAddonIds,
       customer_name: contact.name.trim(),
       customer_email: contact.email.trim(),
       customer_phone: contact.phone.trim(),
@@ -178,6 +182,15 @@ export default function BookingWizard() {
             </div>
           </section>
 
+          <TourAddonsSelector
+            currency={tour.currency_code}
+            onChange={setSelectedAddonIds}
+            onTotalChange={setAddonsTotal}
+            selectedIds={selectedAddonIds}
+            tourId={tour.id}
+            travelers={qty}
+          />
+
           <section className={card}>
             <h2 className="text-xl text-primary">3. Contact</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -194,7 +207,9 @@ export default function BookingWizard() {
           <p className="text-sm text-muted">{dep ? `${formatDate(dep.starts_at)} – ${formatDate(dep.ends_at)}` : "Choose a departure"}</p>
           {dep ? (
             <>
-              <div className="flex justify-between text-sm"><span>{qty} × {money(unit, tour.currency_code)}</span><span>{money(subtotal, tour.currency_code)}</span></div>
+              <div className="flex justify-between text-sm"><span>{qty} × {money(unit, tour.currency_code)}</span><span>{money(unit * qty, tour.currency_code)}</span></div>
+              {addonsTotal > 0 && <div className="flex justify-between text-sm"><span>Optional add-ons</span><span>{money(addonsTotal, tour.currency_code)}</span></div>}
+              <div className="flex justify-between border-t border-border pt-3 text-sm font-semibold"><span>Subtotal</span><span>{money(subtotal, tour.currency_code)}</span></div>
               {discount > 0 && <div className="flex justify-between text-sm text-accent"><span>Member discount ({pct}%)</span><span>−{money(discount, tour.currency_code)}</span></div>}
               <div className="flex justify-between border-t border-border pt-3 text-lg font-semibold text-primary"><span>Estimated total</span><span>{money(total, tour.currency_code)}</span></div>
             </>

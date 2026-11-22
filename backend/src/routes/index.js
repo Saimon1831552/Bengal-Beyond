@@ -106,6 +106,7 @@ router.use("/admin", require("../modules/growth/growth.admin.routes"));
   router.use("/admin/cancellation-requests", authenticate, authorize("bookings.manage"),
   require("../modules/cancellations/cancellation.routes"));
 
+  router.use("/public", require("../modules/public/public.content.routes"));
   router.use("/site-info", require("../modules/settings/site-info.routes"));
 
   router.use("/highlights", require("../modules/public/highlights.routes"));

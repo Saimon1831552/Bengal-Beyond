@@ -8,6 +8,16 @@ exports.createBooking = async (req, res, next) => {
     const departureId = Number(req.body && req.body.departure_id);
     const quantity = Number(req.body && req.body.quantity);
     const travelers = req.body && req.body.travelers;
+    const rawAddonIds = req.body?.addon_ids;
+    if (rawAddonIds !== undefined && !Array.isArray(rawAddonIds)) {
+      throw bad("addon_ids must be an array of positive integers");
+    }
+    const addonIds = rawAddonIds === undefined ? [] : [...new Set(rawAddonIds.map((id) => {
+      if (!Number.isSafeInteger(id) || id < 1) {
+        throw bad("addon_ids must contain only positive integers");
+      }
+      return id;
+    }))].sort((a, b) => a - b);
     const customerName = typeof req.body?.customer_name === "string" ? req.body.customer_name.trim() : "";
     const customerEmail = typeof req.body?.customer_email === "string" ? req.body.customer_email.trim().toLowerCase() : "";
     const customerPhone = typeof req.body?.customer_phone === "string" ? req.body.customer_phone.trim() : "";
@@ -39,6 +49,7 @@ exports.createBooking = async (req, res, next) => {
       idempotencyKey: key,
       departureId,
       quantity,
+      addonIds,
       customerName,
       customerEmail,
       customerPhone,

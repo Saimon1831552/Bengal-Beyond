@@ -23,7 +23,7 @@ function bookingRef() {
 }
 
 function payloadHash(payload) {
-  return crypto.createHash("sha256").update(JSON.stringify({
+  const hashPayload = {
     departure_id: payload.departureId,
     quantity: payload.quantity,
     customer_name: payload.customerName,
@@ -31,7 +31,9 @@ function payloadHash(payload) {
     customer_phone: payload.customerPhone,
     customer_nationality: payload.customerNationality || null,
     travelers: payload.travelers
-  })).digest("hex");
+  };
+  if (payload.addonIds?.length) hashPayload.addon_ids = payload.addonIds;
+  return crypto.createHash("sha256").update(JSON.stringify(hashPayload)).digest("hex");
 }
 
 async function memberDiscountPercent(conn) {
@@ -134,7 +136,34 @@ async function createBooking(payload) {
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {
       throw appError(500, "Invalid departure price");
     }
-    const subtotalCents = Math.round(unitPrice * 100 * payload.quantity);
+    const tourSubtotalCents = Math.round(unitPrice * 100 * payload.quantity);
+    const addonIds = payload.addonIds || [];
+    let addonsTotalCents = 0;
+    let selectedAddons = [];
+    if (addonIds.length) {
+      const placeholders = addonIds.map(() => "?").join(",");
+      const [addonRows] = await connection.query(
+        `SELECT id, name, description, price, pricing_mode
+           FROM tour_addons
+          WHERE tour_id = ? AND is_active = 1 AND id IN (${placeholders})
+          ORDER BY id FOR UPDATE`,
+        [departure.tour_id, ...addonIds]
+      );
+      if (addonRows.length !== addonIds.length) {
+        throw appError(400, "One or more selected add-ons are unavailable for this tour");
+      }
+      selectedAddons = addonRows.map((addon) => {
+        const priceCents = Math.round(Number(addon.price) * 100);
+        if (!Number.isSafeInteger(priceCents) || priceCents < 0) {
+          throw appError(500, "Invalid tour add-on price");
+        }
+        const quantity = addon.pricing_mode === "per_person" ? payload.quantity : 1;
+        const lineTotalCents = priceCents * quantity;
+        addonsTotalCents += lineTotalCents;
+        return { ...addon, quantity, priceCents, lineTotalCents };
+      });
+    }
+    const subtotalCents = tourSubtotalCents + addonsTotalCents;
     const pct = payload.userId ? await memberDiscountPercent(connection) : 0; // members only
     const discountCents = Math.round((subtotalCents * pct) / 100);
     const subtotal = subtotalCents / 100;
@@ -174,12 +203,32 @@ async function createBooking(payload) {
       currency_code: currency
     });
 
-    await connection.query(
+    const [itemResult] = await connection.query(
       `INSERT INTO booking_items
         (booking_id, tour_id, departure_id, quantity, unit_price, line_total, tour_snapshot)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [bookingId, departure.tour_id, payload.departureId, payload.quantity, unitPrice, subtotal, tourSnapshot]
+      [bookingId, departure.tour_id, payload.departureId, payload.quantity, unitPrice, tourSubtotalCents / 100, tourSnapshot]
     );
+    for (const addon of selectedAddons) {
+      await connection.query(
+        `INSERT INTO booking_addons
+          (booking_item_id, addon_id, quantity, unit_price, line_total, addon_snapshot)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          itemResult.insertId,
+          addon.id,
+          addon.quantity,
+          addon.priceCents / 100,
+          addon.lineTotalCents / 100,
+          JSON.stringify({
+            name: addon.name,
+            description: addon.description,
+            pricing_mode: addon.pricing_mode,
+            price: addon.priceCents / 100,
+          }),
+        ]
+      );
+    }
 
     for (const traveler of payload.travelers) {
       await connection.query(
