@@ -1,27 +1,40 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
+import Pagination from "@/components/ui/Pagination";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox, Empty } from "@/components/account/State";
 import useFetch from "@/hooks/useFetch";
 import { money, formatDateTime, titleCase } from "@/lib/format";
 
 const sel = "rounded-xl border border-border bg-white px-3 py-2 text-sm";
+const PAGE_SIZE = 20;
 
 export default function AdminTransactions() {
+  const toast = useToast();
   const [f, setF] = useState({ type: "", status: "", q: "" });
   const [applied, setApplied] = useState(f);
+  const [page, setPage] = useState(1);
 
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(applied)) if (v) qs.set(k, v);
   const query = qs.toString();
   const { data, error, loading, reload } = useFetch(`/admin/transactions${query ? `?${query}` : ""}`);
 
+  useEffect(() => {
+    setPage(1);
+  }, [applied]);
+
+  const rows = data || [];
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pagedRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   const exportCsv = () => {
-    if (!data?.length) return;
+    if (!rows.length) return;
     const headers = ["Type", "ID", "Booking", "Customer", "Provider", "Gateway Ref", "Amount", "Currency", "Status", "Occurred At"];
-    const lines = data.map((r) =>
+    const lines = rows.map((r) =>
       [
         r.entry_type,
         r.entry_id,
@@ -42,6 +55,7 @@ export default function AdminTransactions() {
     a.download = `bengal-beyond-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+    toast.success(`Exported ${rows.length} transactions to CSV.`);
   };
 
   return (
@@ -53,7 +67,7 @@ export default function AdminTransactions() {
         </div>
         <button
           type="button"
-          disabled={!data?.length}
+          disabled={!rows.length}
           onClick={exportCsv}
           className="rounded-full border border-primary px-5 py-2 text-sm font-semibold text-primary disabled:opacity-40"
         >
@@ -96,58 +110,68 @@ export default function AdminTransactions() {
           <div className="p-6"><Loading /></div>
         ) : error ? (
           <div className="p-6"><ErrorBox error={error} onRetry={reload} /></div>
-        ) : !data.length ? (
+        ) : !rows.length ? (
           <div className="p-6"><Empty>No transactions found.</Empty></div>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-border text-xs uppercase tracking-wider text-muted">
-              <tr>
-                <th className="px-5 py-3">Type</th>
-                <th>Booking</th>
-                <th>Customer</th>
-                <th>Provider / Ref</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th className="pr-5">Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {data.map((r) => {
-                const isRefund = r.entry_type === "refund";
-                return (
-                  <tr key={`${r.entry_type}-${r.entry_id}`} className="hover:bg-primary/5">
-                    <td className="px-5 py-3">
-                      <span
-                        className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                          isRefund ? "bg-terracotta/15 text-terracotta" : "bg-accent/15 text-primary"
-                        }`}
-                      >
-                        {titleCase(r.entry_type)} #{r.entry_id}
-                      </span>
-                    </td>
-                    <td>
-                      <Link href={`/admin/bookings/${r.booking_id}`} className="font-mono text-xs font-semibold text-primary underline">
-                        {r.booking_reference}
-                      </Link>
-                    </td>
-                    <td>
-                      <span className="font-medium text-primary">{r.customer_name}</span>
-                      <span className="block text-xs text-muted">{r.customer_email}</span>
-                    </td>
-                    <td>
-                      <span>{titleCase(r.provider)}</span>
-                      {r.reference_id && <span className="block font-mono text-xs text-muted">{r.reference_id}</span>}
-                    </td>
-                    <td className={`font-semibold ${isRefund ? "text-terracotta" : "text-primary"}`}>
-                      {isRefund ? "−" : "+"}{money(r.amount, r.currency_code)}
-                    </td>
-                    <td><StatusBadge value={r.status} /></td>
-                    <td className="whitespace-nowrap pr-5">{formatDateTime(r.occurred_at)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <>
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-border text-xs uppercase tracking-wider text-muted">
+                <tr>
+                  <th className="px-5 py-3">Type</th>
+                  <th>Booking</th>
+                  <th>Customer</th>
+                  <th>Provider / Ref</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th className="pr-5">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {pagedRows.map((r) => {
+                  const isRefund = r.entry_type === "refund";
+                  return (
+                    <tr key={`${r.entry_type}-${r.entry_id}`} className="hover:bg-primary/5">
+                      <td className="px-5 py-3">
+                        <span
+                          className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                            isRefund ? "bg-terracotta/15 text-terracotta" : "bg-accent/15 text-primary"
+                          }`}
+                        >
+                          {titleCase(r.entry_type)} #{r.entry_id}
+                        </span>
+                      </td>
+                      <td>
+                        <Link href={`/admin/bookings/${r.booking_id}`} className="font-mono text-xs font-semibold text-primary underline">
+                          {r.booking_reference}
+                        </Link>
+                      </td>
+                      <td>
+                        <span className="font-medium text-primary">{r.customer_name}</span>
+                        <span className="block text-xs text-muted">{r.customer_email}</span>
+                      </td>
+                      <td>
+                        <span>{titleCase(r.provider)}</span>
+                        {r.reference_id && <span className="block font-mono text-xs text-muted">{r.reference_id}</span>}
+                      </td>
+                      <td className={`font-semibold ${isRefund ? "text-terracotta" : "text-primary"}`}>
+                        {isRefund ? "−" : "+"}{money(r.amount, r.currency_code)}
+                      </td>
+                      <td><StatusBadge value={r.status} /></td>
+                      <td className="whitespace-nowrap pr-5">{formatDateTime(r.occurred_at)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              totalItems={rows.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPage}
+            />
+          </>
         )}
       </div>
     </Container>

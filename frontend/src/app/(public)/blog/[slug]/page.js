@@ -1,13 +1,21 @@
 import { notFound } from "next/navigation";
+import Container from "@/components/ui/Container";
 import { buildMetadata } from "@/lib/seo";
 import { articleJsonLd } from "@/lib/jsonld";
 import { getPost, getPosts } from "@/services/content";
 import Image from "@/components/ui/RemoteImage";
 import JsonLd from "@/components/seo/JsonLd";
 import Breadcrumbs from "@/components/seo/Breadcrumbs";
+import { formatDate } from "@/lib/format";
+
+export const revalidate = 300;
 
 export async function generateStaticParams() {
-  return (await getPosts()).map((p) => ({ slug: p.slug }));
+  try {
+    return (await getPosts()).map((p) => ({ slug: p.slug }));
+  } catch {
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }) {
@@ -21,7 +29,7 @@ export async function generateMetadata({ params }) {
     image: p.image,
     type: "article",
     publishedTime: p.publishedAt,
-    modifiedTime: p.updatedAt,
+    modifiedTime: p.updatedAt || p.publishedAt,
   });
 }
 
@@ -32,15 +40,26 @@ export default async function PostPage({ params }) {
 
   return (
     <main>
-      <Breadcrumbs items={[{ name: "Home", path: "/" }, { name: "Blog", path: "/blog" }, { name: p.title, path: `/blog/${p.slug}` }]} />
-      <article>
-        <h1>{p.title}</h1>
-        <p>By {p.author} · <time dateTime={p.publishedAt}>{p.publishedAt}</time></p>
-        {p.image && <div className="relative my-6 aspect-[16/9] overflow-hidden rounded-3xl"><Image src={p.image} alt={p.title} fill priority className="object-cover" /></div>}
-        <div className="space-y-4 text-foreground/85">
-          {p.body.split(/\n{2,}/).filter(Boolean).map((para, i) => <p key={i} className="whitespace-pre-line">{para}</p>)}
+      <Container className="pt-6">
+        <Breadcrumbs items={[{ name: "Home", path: "/" }, { name: "Blog", path: "/blog" }, { name: p.title, path: `/blog/${p.slug}` }]} />
+      </Container>
+
+      <Container as="article" className="max-w-3xl py-8">
+        <h1 className="font-display text-3xl text-primary md:text-5xl">{p.title}</h1>
+        <p className="mt-3 text-sm text-muted">
+          By {p.author || "Bengal Beyond"} · <time dateTime={p.publishedAt}>{formatDate(p.publishedAt)}</time>
+        </p>
+        {p.image && (
+          <div className="relative my-6 aspect-[16/9] overflow-hidden rounded-3xl">
+            <Image src={p.image} alt={p.title} fill priority className="object-cover" />
+          </div>
+        )}
+        <div className="mt-6 space-y-5 text-base leading-relaxed text-foreground/85">
+          {p.body.split(/\n{2,}/).filter(Boolean).map((para, i) => (
+            <p key={i} className="whitespace-pre-line">{para}</p>
+          ))}
         </div>
-      </article>
+      </Container>
       <JsonLd data={articleJsonLd(p)} />
     </main>
   );

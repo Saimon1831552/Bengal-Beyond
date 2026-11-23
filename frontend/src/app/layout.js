@@ -8,6 +8,7 @@ import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import MaintenanceBanner from "@/components/layout/MaintenanceBanner";
 import AuthProvider from "@/components/providers/AuthProvider";
+import { ToastProvider } from "@/components/ui/ToastProvider";
 import CustomCursor from "@/components/fx/CustomCursor";
 import MicroFX from "@/components/fx/MicroFX";
 import { getSiteInfo } from "@/services/content";
@@ -58,11 +59,13 @@ export default async function RootLayout({ children }) {
       <body className="min-h-full flex flex-col">
         <SmoothScroll>
           <AuthProvider>
-            <a href="#main" className="skip-link">Skip to content</a>
-            <Navbar />
-            <div id="main" className="flex-1">{children}</div>
-            <Footer info={info} />
-            <MaintenanceBanner info={info} />
+            <ToastProvider>
+              <a href="#main" className="skip-link">Skip to content</a>
+              <Navbar />
+              <div id="main" className="flex-1">{children}</div>
+              <Footer info={info} />
+              <MaintenanceBanner info={info} />
+            </ToastProvider>
           </AuthProvider>
           <CustomCursor />
           <MicroFX />

@@ -14,14 +14,24 @@ import { getTour, getTours, getTourReviews, getTourDepartures } from "@/services
 export const revalidate = 300;
 
 export async function generateStaticParams() {
-  try { return (await getTours()).map((t) => ({ slug: t.slug })); } catch { return []; }
+  try {
+    return (await getTours()).map((t) => ({ slug: t.slug }));
+  } catch {
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }) {
   const { slug } = await params;
   const t = await getTour(slug);
   if (!t) return {};
-  return buildMetadata({ title: `${t.title} (${t.days} ${t.days === 1 ? "day" : "days"})`, description: t.summary, path: `/tours/${t.slug}`, image: t.image });
+  return buildMetadata({
+    title: `${t.title} (${t.days} ${t.days === 1 ? "day" : "days"})`,
+    description: t.summary,
+    path: `/tours/${t.slug}`,
+    image: t.image,
+    keywords: [t.title, t.destination, ...(t.categories || []), ...(t.tags || []), "Bangladesh tour"].filter(Boolean),
+  });
 }
 
 export default async function TourPage({ params }) {
@@ -30,7 +40,11 @@ export default async function TourPage({ params }) {
   if (!t) notFound();
   const [reviews, deps] = await Promise.all([getTourReviews(t.id), getTourDepartures(t.id)]);
   const { total, averageRating } = reviews.summary;
-  const jsonLd = tourJsonLd({ ...t, rating: total ? { value: averageRating, count: total } : null });
+  const jsonLd = tourJsonLd({
+    ...t,
+    hasUpcomingDepartures: deps.length > 0,
+    rating: total ? { value: averageRating, count: total } : null,
+  });
   const paragraphs = (t.description || "").split(/\n{2,}/).filter(Boolean);
 
   return (
@@ -82,8 +96,7 @@ export default async function TourPage({ params }) {
         </aside>
       </Container>
 
-      <Container as="section" className="max-w-3xl py-10">
-        <h2 id="reviews" className="scroll-mt-24 text-3xl text-primary">Traveller reviews</h2>
+      <Container as="section" id="reviews" className="max-w-3xl py-10">
         {total === 0 ? (
           <p className="mt-3 text-muted">No reviews yet. Reviews come from travellers who completed this tour.</p>
         ) : (

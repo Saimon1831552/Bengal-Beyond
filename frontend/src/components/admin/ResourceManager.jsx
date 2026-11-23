@@ -1,6 +1,9 @@
 "use client";
 import { useRef, useState } from "react";
 import Container from "@/components/ui/Container";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import Pagination from "@/components/ui/Pagination";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox, Empty } from "@/components/account/State";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
@@ -24,6 +27,7 @@ function Input({ f, value, onChange, disabled }) {
 }
 
 function Form({ cfg, mode, row, onDone, onCancel }) {
+  const toast = useToast();
   const [values, setValues] = useState(() => (mode === "edit" ? cfg.toForm(row) : initial(cfg)));
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -47,8 +51,13 @@ function Form({ cfg, mode, row, onDone, onCancel }) {
       const payload = cfg.toPayload(values, mode);
       if (mode === "new") await api.post(cfg.endpoint, payload);
       else await api[cfg.updateMethod || "patch"](cfg.itemPath(row), payload);
-      await onDone(mode === "new" ? "Created." : "Saved.");
-    } catch (err) { setMsg(errMsg(err)); setBusy(false); }
+      await onDone(mode === "new" ? `${cfg.singular} created.` : `${cfg.singular} updated.`);
+    } catch (err) {
+      const m = errMsg(err);
+      setMsg(m);
+      toast.error(m);
+      setBusy(false);
+    }
   };
 
   return (
@@ -79,36 +88,68 @@ function Form({ cfg, mode, row, onDone, onCancel }) {
 }
 
 export default function ResourceManager({ cfg }) {
+  const toast = useToast();
   const defaults = cfg.defaultFilters || {};
+  const pageSize = cfg.pageSize || 20;
   const [filters, setFilters] = useState(defaults);
   const [applied, setApplied] = useState(defaults);
   const [page, setPage] = useState(1);
-  const [view, setView] = useState(null); // null | { mode: "new" } | { mode: "edit", row }
+  const [view, setView] = useState(null);
   const [busy, setBusy] = useState("");
-  const [flash, setFlash] = useState({ type: "", text: "" });
+  const [confirmState, setConfirmState] = useState(null); // { title, description, confirmLabel, tone, run }
 
-  const qs = new URLSearchParams({ page, limit: cfg.pageSize || 20, ...(cfg.query || {}) });
+  const qs = new URLSearchParams({ page, limit: pageSize, ...(cfg.query || {}) });
   for (const [k, v] of Object.entries(applied)) if (v) qs.set(k, v);
   const { raw, error, loading, reload } = useFetch(`${cfg.endpoint}?${qs}`);
   const { rows = [], pages = 1, total } = raw ? cfg.read(raw) : {};
 
-  const ok = (text) => setFlash({ type: "ok", text });
-  const bad = (e) => setFlash({ type: "error", text: errMsg(e) });
-
   const guarded = async (key, fn) => {
-    setBusy(key); setFlash({ type: "", text: "" });
-    try { await fn(); } catch (e) { bad(e); } finally { setBusy(""); }
+    setBusy(key);
+    try {
+      await fn();
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy("");
+    }
   };
 
   const edit = (row) => guarded(`e${row.id}`, async () =>
     setView({ mode: "edit", row: cfg.loadRow ? await cfg.loadRow(row, api) : row }));
+
   const remove = (row) => {
-    if (!window.confirm(cfg.remove.confirm(row))) return;
-    guarded(`d${row.id}`, async () => { await api.delete(cfg.itemPath(row)); ok(`${cfg.remove.label} done.`); await reload(); });
+    setConfirmState({
+      title: `${cfg.remove.label} ${cfg.singular}?`,
+      description: cfg.remove.confirm(row),
+      confirmLabel: cfg.remove.label,
+      tone: "danger",
+      run: async () => {
+        await guarded(`d${row.id}`, async () => {
+          await api.delete(cfg.itemPath(row));
+          toast.success(`${cfg.remove.label} completed.`);
+          await reload();
+        });
+      },
+    });
   };
+
   const act = (a, row) => {
-    if (a.confirm && !window.confirm(a.confirm(row))) return;
-    guarded(`${a.label}${row.id}`, async () => { await a.run(row, api); ok("Done."); await reload(); });
+    const exec = () => guarded(`${a.label}${row.id}`, async () => {
+      await a.run(row, api);
+      toast.success(`${a.label} completed.`);
+      await reload();
+    });
+    if (a.confirm) {
+      setConfirmState({
+        title: `${a.label}?`,
+        description: a.confirm(row),
+        confirmLabel: a.label,
+        tone: a.danger ? "danger" : "primary",
+        run: exec,
+      });
+    } else {
+      exec();
+    }
   };
 
   if (view) {
@@ -117,7 +158,7 @@ export default function ResourceManager({ cfg }) {
         <button onClick={() => setView(null)} className="text-sm text-accent link-underline">← {cfg.title}</button>
         <h1 className="mb-6 mt-3 text-3xl text-primary">{view.mode === "new" ? `New ${cfg.singular}` : `Edit ${cfg.singular}`}</h1>
         <Form cfg={cfg} mode={view.mode} row={view.row}
-          onDone={async (t) => { setView(null); ok(t); await reload(); }} onCancel={() => setView(null)} />
+          onDone={async (t) => { setView(null); toast.success(t); await reload(); }} onCancel={() => setView(null)} />
       </Container>
     );
   }
@@ -142,40 +183,54 @@ export default function ResourceManager({ cfg }) {
         {total != null && <span className="text-sm text-muted">{total} total</span>}
       </form>
 
-      {flash.text && <p role={flash.type === "error" ? "alert" : "status"} className={`mt-4 text-sm ${flash.type === "error" ? "text-terracotta" : "text-primary"}`}>{flash.text}</p>}
-
       <div className="mt-6 overflow-x-auto rounded-2xl border border-border bg-white">
         {loading ? <div className="p-6"><Loading /></div> : error ? <div className="p-6"><ErrorBox error={error} onRetry={reload} /></div> :
           !rows.length ? <div className="p-6"><Empty>Nothing here yet.</Empty></div> : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-border text-xs uppercase tracking-wider text-muted">
-              <tr>{cfg.columns.map((c, i) => <th key={c.label} className={i === 0 ? "px-5 py-3" : "py-3"}>{c.label}</th>)}<th className="pr-5" /></tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {rows.map((r) => (
-                <tr key={r.id} className="align-top">
-                  {cfg.columns.map((c, i) => <td key={c.label} className={i === 0 ? "px-5 py-3" : "py-3 pr-3"}>{c.render(r)}</td>)}
-                  <td className="space-x-3 whitespace-nowrap py-3 pr-5 text-right text-xs font-semibold">
-                    {(cfg.rowActions || []).filter((a) => !a.show || a.show(r)).map((a) => (
-                      <button key={a.label} disabled={!!busy} onClick={() => act(a, r)} className={`underline disabled:opacity-40 ${a.danger ? "text-terracotta" : "text-primary"}`}>{a.label}</button>
-                    ))}
-                    <button disabled={!!busy} onClick={() => edit(r)} className="text-primary underline disabled:opacity-40">Edit</button>
-                    {cfg.remove && <button disabled={!!busy} onClick={() => remove(r)} className="text-terracotta underline disabled:opacity-40">{cfg.remove.label}</button>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <>
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-border text-xs uppercase tracking-wider text-muted">
+                <tr>{cfg.columns.map((c, i) => <th key={c.label} className={i === 0 ? "px-5 py-3" : "py-3"}>{c.label}</th>)}<th className="pr-5" /></tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {rows.map((r) => (
+                  <tr key={r.id} className="align-top hover:bg-primary/5">
+                    {cfg.columns.map((c, i) => <td key={c.label} className={i === 0 ? "px-5 py-3" : "py-3 pr-3"}>{c.render(r)}</td>)}
+                    <td className="space-x-3 whitespace-nowrap py-3 pr-5 text-right text-xs font-semibold">
+                      {(cfg.rowActions || []).filter((a) => !a.show || a.show(r)).map((a) => (
+                        <button key={a.label} disabled={!!busy} onClick={() => act(a, r)} className={`underline disabled:opacity-40 ${a.danger ? "text-terracotta" : "text-primary"}`}>{a.label}</button>
+                      ))}
+                      <button disabled={!!busy} onClick={() => edit(r)} className="text-primary underline disabled:opacity-40">Edit</button>
+                      {cfg.remove && <button disabled={!!busy} onClick={() => remove(r)} className="text-terracotta underline disabled:opacity-40">{cfg.remove.label}</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <Pagination
+              page={page}
+              totalPages={pages}
+              totalItems={total ?? rows.length}
+              pageSize={pageSize}
+              onPageChange={setPage}
+            />
+          </>
         )}
       </div>
 
-      {pages > 1 && (
-        <div className="mt-6 flex items-center justify-center gap-4 text-sm">
-          <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded-full border border-primary px-4 py-2 disabled:opacity-40">Previous</button>
-          <span>Page {page} of {pages}</span>
-          <button disabled={page >= pages} onClick={() => setPage(page + 1)} className="rounded-full border border-primary px-4 py-2 disabled:opacity-40">Next</button>
-        </div>
-      )}
+      <ConfirmModal
+        open={Boolean(confirmState)}
+        tone={confirmState?.tone || "danger"}
+        title={confirmState?.title}
+        description={confirmState?.description}
+        confirmLabel={confirmState?.confirmLabel || "Confirm"}
+        busy={Boolean(busy)}
+        onConfirm={async () => {
+          const fn = confirmState?.run;
+          setConfirmState(null);
+          if (fn) await fn();
+        }}
+        onCancel={() => setConfirmState(null)}
+      />
     </Container>
   );
 }

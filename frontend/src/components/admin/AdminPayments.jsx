@@ -3,6 +3,8 @@ import { useState } from "react";
 import Link from "next/link";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
+import Pagination from "@/components/ui/Pagination";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox, Empty } from "@/components/account/State";
 import { useCan } from "./AdminShell";
 import useFetch from "@/hooks/useFetch";
@@ -15,11 +17,13 @@ const sel = "rounded-xl border border-border bg-white px-3 py-2 text-sm";
 
 export default function AdminPayments() {
   const can = useCan();
+  const toast = useToast();
   const [f, setF] = useState({ status: "", provider: "", booking_id: "", from: "", to: "" });
   const [applied, setApplied] = useState(f);
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState("");
-  const [msg, setMsg] = useState({ type: "", text: "" });
+  const [modalTarget, setModalTarget] = useState(null); // { payment, action }
+  const [auditNote, setAuditNote] = useState("");
 
   const qs = new URLSearchParams({ page, limit: 20 });
   for (const [k, v] of Object.entries(applied)) if (v) qs.set(k, v);
@@ -27,22 +31,26 @@ export default function AdminPayments() {
   const pg = raw?.pagination;
   const manage = can("payments.manage");
 
-  const runAction = async (payment, action) => {
-    const label = action === "verify" ? "VERIFY (mark as succeeded)" : "MARK FAILED";
-    const note = window.prompt(`Optional audit note before you ${label} payment #${payment.id} (${payment.booking_reference || `Booking #${payment.booking_id}`}):`);
-    if (note === null) return;
-    if (!window.confirm(`Confirm: ${label} for ${money(payment.amount, payment.currency_code)}?`)) return;
+  const openModal = (payment, action) => {
+    setAuditNote("");
+    setModalTarget({ payment, action });
+  };
 
+  const submitAction = async (e) => {
+    e.preventDefault();
+    if (!modalTarget) return;
+    const { payment, action } = modalTarget;
     setBusy(`${payment.id}-${action}`);
-    setMsg({ type: "", text: "" });
     try {
       const res = await api.post(`/admin/payments/${payment.id}/${action}`, {
-        ...(note.trim() && { note: note.trim() }),
+        ...(auditNote.trim() && { note: auditNote.trim() }),
       });
-      setMsg({ type: "ok", text: res.data?.message || "Payment updated." });
+      toast.success(res.data?.message || "Payment updated.");
+      setModalTarget(null);
+      setAuditNote("");
       await reload();
-    } catch (e) {
-      setMsg({ type: "error", text: errMsg(e) });
+    } catch (err) {
+      toast.error(errMsg(err));
     } finally {
       setBusy("");
     }
@@ -65,65 +73,27 @@ export default function AdminPayments() {
         }}
         className="mt-6 flex flex-wrap items-end gap-3"
       >
-        <select
-          aria-label="Status"
-          value={f.status}
-          onChange={(e) => setF({ ...f, status: e.target.value })}
-          className={sel}
-        >
+        <select aria-label="Status" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} className={sel}>
           <option value="">All statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>{titleCase(s)}</option>
-          ))}
+          {STATUSES.map((s) => <option key={s} value={s}>{titleCase(s)}</option>)}
         </select>
 
-        <input
-          placeholder="Provider (e.g. sslcommerz)"
-          aria-label="Provider"
-          value={f.provider}
-          onChange={(e) => setF({ ...f, provider: e.target.value })}
-          className={`${sel} w-48`}
-        />
-
-        <input
-          placeholder="Booking ID"
-          inputMode="numeric"
-          pattern="\d*"
-          aria-label="Booking ID"
-          value={f.booking_id}
-          onChange={(e) => setF({ ...f, booking_id: e.target.value })}
-          className={`${sel} w-32`}
-        />
+        <input placeholder="Provider (e.g. sslcommerz)" aria-label="Provider" value={f.provider} onChange={(e) => setF({ ...f, provider: e.target.value })} className={`${sel} w-48`} />
+        <input placeholder="Booking ID" inputMode="numeric" pattern="\d*" aria-label="Booking ID" value={f.booking_id} onChange={(e) => setF({ ...f, booking_id: e.target.value })} className={`${sel} w-32`} />
 
         <label className="text-xs font-medium text-muted">
           From
-          <input
-            type="date"
-            value={f.from}
-            onChange={(e) => setF({ ...f, from: e.target.value })}
-            className={`${sel} ml-2`}
-          />
+          <input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} className={`${sel} ml-2`} />
         </label>
 
         <label className="text-xs font-medium text-muted">
           To
-          <input
-            type="date"
-            value={f.to}
-            onChange={(e) => setF({ ...f, to: e.target.value })}
-            className={`${sel} ml-2`}
-          />
+          <input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} className={`${sel} ml-2`} />
         </label>
 
         <button className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white">Filter</button>
         {pg?.total != null && <span className="text-sm text-muted">{pg.total} payments</span>}
       </form>
-
-      {msg.text && (
-        <p role={msg.type === "error" ? "alert" : "status"} className={`mt-4 text-sm ${msg.type === "error" ? "text-terracotta" : "text-primary"}`}>
-          {msg.text}
-        </p>
-      )}
 
       <div className="mt-6 overflow-x-auto rounded-2xl border border-border bg-white">
         {loading ? (
@@ -133,88 +103,109 @@ export default function AdminPayments() {
         ) : !data.length ? (
           <div className="p-6"><Empty>No payments found.</Empty></div>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-border text-xs uppercase tracking-wider text-muted">
-              <tr>
-                <th className="px-5 py-3">Booking</th>
-                <th>Provider</th>
-                <th>Transaction ID</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th className="text-right">Amount</th>
-                {manage && <th className="pr-5 text-right">Actions</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {data.map((p) => {
-                const actionable = manage && ["initiated", "pending", "failed"].includes(p.status);
-                return (
-                  <tr key={p.id} className="hover:bg-primary/5">
-                    <td className="px-5 py-3">
-                      <Link href={`/admin/bookings/${p.booking_id}`} className="font-semibold text-primary underline">
-                        {p.booking_reference || `#${p.booking_id}`}
-                      </Link>
-                      <span className="block text-xs text-muted">Payment #{p.id}</span>
-                    </td>
-                    <td className="capitalize">{p.provider || "—"}</td>
-                    <td className="font-mono text-xs">{p.provider_payment_id || "—"}</td>
-                    <td>
-                      <StatusBadge value={p.status} />
-                      {p.verified_at && <span className="mt-1 block text-[11px] text-muted">Verified {formatDateTime(p.verified_at)}</span>}
-                    </td>
-                    <td className="whitespace-nowrap">{formatDateTime(p.created_at)}</td>
-                    <td className="text-right font-semibold text-primary">{money(p.amount, p.currency_code)}</td>
-                    {manage && (
-                      <td className="space-x-3 whitespace-nowrap pr-5 text-right text-xs font-semibold">
-                        {actionable ? (
-                          <>
-                            <button
-                              disabled={!!busy}
-                              onClick={() => runAction(p, "verify")}
-                              className="text-primary underline disabled:opacity-40"
-                            >
-                              {busy === `${p.id}-verify` ? "…" : "Verify"}
-                            </button>
-                            {p.status !== "failed" && (
-                              <button
-                                disabled={!!busy}
-                                onClick={() => runAction(p, "mark-failed")}
-                                className="text-terracotta underline disabled:opacity-40"
-                              >
-                                {busy === `${p.id}-mark-failed` ? "…" : "Mark failed"}
-                              </button>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-muted">—</span>
-                        )}
+          <>
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-border text-xs uppercase tracking-wider text-muted">
+                <tr>
+                  <th className="px-5 py-3">Booking</th>
+                  <th>Provider</th>
+                  <th>Transaction ID</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th className="text-right">Amount</th>
+                  {manage && <th className="pr-5 text-right">Actions</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {data.map((p) => {
+                  const actionable = manage && ["initiated", "pending", "failed"].includes(p.status);
+                  return (
+                    <tr key={p.id} className="hover:bg-primary/5">
+                      <td className="px-5 py-3">
+                        <Link href={`/admin/bookings/${p.booking_id}`} className="font-semibold text-primary underline">
+                          {p.booking_reference || `#${p.booking_id}`}
+                        </Link>
+                        <span className="block text-xs text-muted">Payment #{p.id}</span>
                       </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <td className="capitalize">{p.provider || "—"}</td>
+                      <td className="font-mono text-xs">{p.provider_payment_id || "—"}</td>
+                      <td>
+                        <StatusBadge value={p.status} />
+                        {p.verified_at && <span className="mt-1 block text-[11px] text-muted">Verified {formatDateTime(p.verified_at)}</span>}
+                      </td>
+                      <td className="whitespace-nowrap">{formatDateTime(p.created_at)}</td>
+                      <td className="text-right font-semibold text-primary">{money(p.amount, p.currency_code)}</td>
+                      {manage && (
+                        <td className="space-x-3 whitespace-nowrap pr-5 text-right text-xs font-semibold">
+                          {actionable ? (
+                            <>
+                              <button disabled={!!busy} onClick={() => openModal(p, "verify")} className="text-primary underline disabled:opacity-40">
+                                Verify
+                              </button>
+                              {p.status !== "failed" && (
+                                <button disabled={!!busy} onClick={() => openModal(p, "mark-failed")} className="text-terracotta underline disabled:opacity-40">
+                                  Mark failed
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-muted">—</span>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <Pagination page={page} totalPages={pg?.pages || 1} totalItems={pg?.total || data.length} pageSize={20} onPageChange={setPage} />
+          </>
         )}
       </div>
 
-      {pg?.pages > 1 && (
-        <div className="mt-6 flex items-center justify-center gap-4 text-sm">
-          <button
-            disabled={page <= 1}
-            onClick={() => setPage(page - 1)}
-            className="rounded-full border border-primary px-4 py-2 text-primary disabled:opacity-40"
+      {modalTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
+          onClick={() => !busy && setModalTarget(null)}
+        >
+          <form
+            onSubmit={submitAction}
+            className="w-full max-w-md rounded-2xl border border-border bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
           >
-            Previous
-          </button>
-          <span>Page {page} of {pg.pages} · {pg.total} payments</span>
-          <button
-            disabled={page >= pg.pages}
-            onClick={() => setPage(page + 1)}
-            className="rounded-full border border-primary px-4 py-2 text-primary disabled:opacity-40"
-          >
-            Next
-          </button>
+            <h3 className="font-display text-xl text-primary">
+              {modalTarget.action === "verify" ? "Verify payment as succeeded?" : "Mark payment as failed?"}
+            </h3>
+            <p className="mt-2 text-sm text-muted">
+              Payment #{modalTarget.payment.id} ({modalTarget.payment.booking_reference || `Booking #${modalTarget.payment.booking_id}`}) —{" "}
+              <strong className="text-primary">{money(modalTarget.payment.amount, modalTarget.payment.currency_code)}</strong>
+            </p>
+            <label className="mt-4 block text-xs font-semibold text-primary">
+              Optional audit note
+              <input
+                value={auditNote}
+                onChange={(e) => setAuditNote(e.target.value)}
+                maxLength={500}
+                placeholder="Bank slip ref, gateway verification note…"
+                className="mt-1 w-full rounded-xl border border-border px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" disabled={!!busy} onClick={() => setModalTarget(null)} className="rounded-full border border-border px-4 py-2 text-xs font-semibold text-primary">
+                Cancel
+              </button>
+              <button
+                disabled={!!busy}
+                className={`rounded-full px-5 py-2 text-xs font-semibold text-white disabled:opacity-50 ${
+                  modalTarget.action === "verify" ? "btn-gold" : "bg-terracotta"
+                }`}
+              >
+                {busy ? "Working…" : modalTarget.action === "verify" ? "Confirm Verify" : "Mark Failed"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </Container>

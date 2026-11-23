@@ -2,6 +2,8 @@
 import { useState } from "react";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox, Empty } from "@/components/account/State";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
@@ -11,11 +13,13 @@ const inp = "mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text
 const BLANK = { category: "General", question: "", answer: "", sort_order: 0, status: "published" };
 
 export default function AdminFaqs() {
+  const toast = useToast();
   const { data, error, loading, reload } = useFetch("/admin/faqs");
   const [form, setForm] = useState(BLANK);
   const [editingId, setEditingId] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState({ type: "", text: "" });
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const startEdit = (r) => {
     setEditingId(r.id);
@@ -30,29 +34,37 @@ export default function AdminFaqs() {
   const save = async (e) => {
     e.preventDefault();
     setBusy(true);
-    setMsg({ type: "", text: "" });
     try {
       const payload = { ...form, sort_order: Number(form.sort_order) || 0 };
       if (editingId) {
         await api.patch(`/admin/faqs/${editingId}`, payload);
-        setMsg({ type: "ok", text: "FAQ updated." });
+        toast.success("FAQ updated.");
       } else {
         await api.post("/admin/faqs", payload);
-        setMsg({ type: "ok", text: "FAQ created." });
+        toast.success("FAQ created.");
       }
       reset();
       await reload();
     } catch (err) {
-      setMsg({ type: "error", text: errMsg(err) });
+      toast.error(errMsg(err));
     } finally {
       setBusy(false);
     }
   };
 
-  const remove = async (r) => {
-    if (!window.confirm(`Delete FAQ "${r.question}"?`)) return;
-    await api.delete(`/admin/faqs/${r.id}`);
-    await reload();
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/admin/faqs/${deleteTarget.id}`);
+      toast.success("FAQ deleted.");
+      setDeleteTarget(null);
+      await reload();
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -89,8 +101,6 @@ export default function AdminFaqs() {
           <textarea rows={3} required value={form.answer} onChange={(e) => setForm({ ...form, answer: e.target.value })} className={inp} />
         </label>
 
-        {msg.text && <p className={`text-sm sm:col-span-3 ${msg.type === "error" ? "text-terracotta" : "text-primary"}`}>{msg.text}</p>}
-
         <div className="flex gap-3 sm:col-span-3">
           <button disabled={busy} className="btn-gold rounded-full px-6 py-2.5 text-sm font-semibold disabled:opacity-50">
             {busy ? "Saving…" : editingId ? "Update FAQ" : "Add FAQ"}
@@ -113,12 +123,23 @@ export default function AdminFaqs() {
               </div>
               <div className="space-x-3 text-xs font-semibold">
                 <button onClick={() => startEdit(r)} className="text-primary underline">Edit</button>
-                <button onClick={() => remove(r)} className="text-terracotta underline">Delete</button>
+                <button onClick={() => setDeleteTarget(r)} className="text-terracotta underline">Delete</button>
               </div>
             </div>
           </article>
         ))}
       </div>
+
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        tone="danger"
+        title="Delete FAQ?"
+        description={deleteTarget ? `Delete "${deleteTarget.question}" from the public FAQs page?` : ""}
+        confirmLabel="Delete FAQ"
+        busy={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </Container>
   );
 }

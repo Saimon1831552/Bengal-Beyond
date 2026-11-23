@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import Container from "@/components/ui/Container";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox } from "@/components/account/State";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
@@ -17,7 +19,7 @@ const HINTS = {
   booking_cancellation_enabled: "Stored only. Not applied by the cancellation flow yet.",
   booking_cancellation_window_hours: "Stored only. Not applied yet.",
   booking_cancellation_fee_percent: "Stored only. Not applied yet.",
-  max_booking_party_size: "Enforced when a booking is created (needs backend patch 0.4).",
+  max_booking_party_size: "Enforced when a booking is created.",
   member_discount_percent: "Automatic discount for logged-in customers at booking. Guests get none.",
   maintenance_mode: "Blocks the public site and API for visitors. Admin pages and login keep working.",
   maintenance_message: "Shown to visitors in a banner while maintenance mode is on.",
@@ -34,12 +36,13 @@ function norm(s, v) {
 const show = (v) => { const s = typeof v === "string" ? v : JSON.stringify(v); return s.length > 60 ? `${s.slice(0, 57)}…` : s || "(empty)"; };
 
 export default function SettingsForm({ title, intro, categories }) {
+  const toast = useToast();
   const { data, error, loading, reload } = useFetch("/admin/settings");
   const hist = useFetch("/admin/settings/history?limit=8");
   const [vals, setVals] = useState({});
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState({ type: "", text: "" });
+  const [pendingSettings, setPendingSettings] = useState(null);
 
   useEffect(() => { if (data) setVals(Object.fromEntries(data.map((s) => [s.key, s.value]))); }, [data]);
 
@@ -51,23 +54,33 @@ export default function SettingsForm({ title, intro, categories }) {
   const changed = items.filter((s) => norm(s, vals[s.key]) !== s.value);
   const maintenanceOn = norm(data.find((s) => s.key === "maintenance_mode") || {}, vals.maintenance_mode);
 
+  const commitSave = async (settings) => {
+    setBusy(true);
+    try {
+      const res = await api.put("/admin/settings/bulk", { settings, ...(reason.trim() && { reason: reason.trim() }) });
+      toast.success(`${res.data.data.updatedCount} setting(s) updated.`);
+      setReason("");
+      await Promise.all([reload(), hist.reload()]);
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const save = async (e) => {
     e.preventDefault();
     const settings = {};
     for (const s of changed) {
       const v = norm(s, vals[s.key]);
-      if (isNum(s) && Number.isNaN(v)) return setMsg({ type: "error", text: `${s.label} needs a number.` });
+      if (isNum(s) && Number.isNaN(v)) return toast.error(`${s.label} needs a number.`);
       settings[s.key] = v;
     }
-    if (settings.maintenance_mode === true &&
-        !window.confirm("Turn ON maintenance mode? Visitors will see the maintenance message and cannot use the site until you turn it off.")) return;
-    setBusy(true); setMsg({ type: "", text: "" });
-    try {
-      const res = await api.put("/admin/settings/bulk", { settings, ...(reason.trim() && { reason: reason.trim() }) });
-      setMsg({ type: "ok", text: `${res.data.data.updatedCount} setting(s) updated.` });
-      setReason("");
-      await Promise.all([reload(), hist.reload()]);
-    } catch (err) { setMsg({ type: "error", text: errMsg(err) }); } finally { setBusy(false); }
+    if (settings.maintenance_mode === true) {
+      setPendingSettings(settings);
+      return;
+    }
+    await commitSave(settings);
   };
 
   return (
@@ -116,7 +129,6 @@ export default function SettingsForm({ title, intro, categories }) {
         <label className="block text-sm font-medium">Reason for change (optional, kept in the history)
           <input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} className={inp} />
         </label>
-        {msg.text && <p role={msg.type === "error" ? "alert" : "status"} className={`text-sm ${msg.type === "error" ? "text-terracotta" : "text-primary"}`}>{msg.text}</p>}
         <button disabled={busy || !changed.length} className="btn-gold rounded-full px-8 py-3 font-semibold disabled:opacity-50">
           {busy ? "Saving…" : changed.length ? `Save ${changed.length} change${changed.length > 1 ? "s" : ""}` : "No changes"}
         </button>
@@ -135,6 +147,21 @@ export default function SettingsForm({ title, intro, categories }) {
           </ul>
         </section>
       )}
+
+      <ConfirmModal
+        open={Boolean(pendingSettings)}
+        tone="danger"
+        title="Turn ON maintenance mode?"
+        description="Visitors will see the maintenance message and cannot browse or book on the site until you turn it off."
+        confirmLabel="Turn ON Maintenance"
+        busy={busy}
+        onConfirm={async () => {
+          const s = pendingSettings;
+          setPendingSettings(null);
+          if (s) await commitSave(s);
+        }}
+        onCancel={() => setPendingSettings(null)}
+      />
     </Container>
   );
 }

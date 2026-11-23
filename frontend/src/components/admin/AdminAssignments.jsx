@@ -1,127 +1,117 @@
 "use client";
 import { useState } from "react";
-import Link from "next/link";
 import Container from "@/components/ui/Container";
+import StatusBadge from "@/components/ui/StatusBadge";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox, Empty } from "@/components/account/State";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
 import { formatDateTime, titleCase } from "@/lib/format";
 import { errMsg } from "@/lib/errors";
 
-const inp = "mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm";
+const inp = "mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none focus:border-accent";
+
+const toArray = (v) => (Array.isArray(v) ? v : Array.isArray(v?.items) ? v.items : []);
 
 export default function AdminAssignments() {
-  const { data: staff } = useFetch("/admin/guides");
-  const { data: tours } = useFetch("/admin/tours?limit=100");
-  const { data: bookings } = useFetch("/admin/bookings?limit=100");
-  const [filterType, setFilterType] = useState("");
-  const qs = filterType ? `?entity_type=${filterType}` : "";
-  const { data, error, loading, reload } = useFetch(`/admin/assignments${qs}`);
+  const toast = useToast();
+  const { data: assignments, error, loading, reload } = useFetch("/admin/assignments");
+  const { data: bookingsRaw } = useFetch("/admin/bookings?limit=100");
+  const { data: guidesRaw } = useFetch("/admin/guides");
+  const { data: vehiclesRaw } = useFetch("/admin/vehicles");
 
-  const [form, setForm] = useState({ entity_type: "tour", entity_id: "", staff_user_id: "" });
+  const bookings = toArray(bookingsRaw);
+  const guides = toArray(guidesRaw);
+  const vehicles = toArray(vehiclesRaw);
+  const assignmentList = toArray(assignments);
+
+  const [form, setForm] = useState({ entity_id: "", guide_id: "", vehicle_id: "", role_label: "Lead Guide", notes: "" });
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState({ type: "", text: "" });
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const create = async (e) => {
+  const assign = async (e) => {
     e.preventDefault();
+    if (!form.guide_id && !form.vehicle_id) return toast.error("Select a guide and/or vehicle.");
     setBusy(true);
-    setMsg({ type: "", text: "" });
     try {
       await api.post("/admin/assignments", {
-        entity_type: form.entity_type,
+        entity_type: "booking",
         entity_id: Number(form.entity_id),
-        staff_user_id: Number(form.staff_user_id),
+        guide_id: form.guide_id ? Number(form.guide_id) : null,
+        vehicle_id: form.vehicle_id ? Number(form.vehicle_id) : null,
+        role_label: form.role_label.trim() || null,
+        notes: form.notes.trim() || null,
       });
-      setForm({ ...form, entity_id: "" });
-      setMsg({ type: "ok", text: "Staff member assigned." });
+      toast.success("Resource assigned.");
+      setForm({ entity_id: "", guide_id: "", vehicle_id: "", role_label: "Lead Guide", notes: "" });
       await reload();
     } catch (err) {
-      setMsg({ type: "error", text: errMsg(err) });
+      toast.error(errMsg(err));
     } finally {
       setBusy(false);
     }
   };
 
-  const remove = async (a) => {
-    if (!window.confirm(`Unassign ${a.staff_name} from ${a.entity_label}?`)) return;
-    await api.delete(`/admin/assignments/${a.id}`);
-    await reload();
+  const remove = async (id) => {
+    setBusy(true);
+    try {
+      await api.delete(`/admin/assignments/${id}`);
+      toast.success("Assignment removed.");
+      await reload();
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <Container as="main" className="py-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-3xl text-primary">Tour &amp; staff assignments</h1>
-          <p className="mt-1 text-sm text-muted">Assign tour guides, operators, or coordinators to tours, bookings, and enquiries.</p>
-        </div>
-        <select
-          aria-label="Filter by type"
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
-          className="rounded-xl border border-border bg-white px-3 py-2 text-sm"
-        >
-          <option value="">All assignment types</option>
-          <option value="tour">Tours</option>
-          <option value="booking">Bookings</option>
-          <option value="enquiry">Enquiries</option>
-        </select>
+      <div>
+        <h1 className="text-3xl text-primary">Guide &amp; vehicle assignments</h1>
+        <p className="mt-1 text-sm text-muted">Assign tour guides and fleet vehicles to upcoming bookings.</p>
       </div>
 
-      <form onSubmit={create} className="mt-6 grid gap-4 rounded-2xl border border-border bg-white p-6 sm:grid-cols-3">
-        <label className="text-xs font-semibold">
-          Record type
-          <select
-            value={form.entity_type}
-            onChange={(e) => setForm({ ...form, entity_type: e.target.value, entity_id: "" })}
-            className={inp}
-          >
-            <option value="tour">Tour</option>
-            <option value="booking">Booking</option>
-            <option value="enquiry">Enquiry (by ID)</option>
-          </select>
-        </label>
-
-        <label className="text-xs font-semibold">
-          {form.entity_type === "tour" ? "Select tour *" : form.entity_type === "booking" ? "Select booking *" : "Enquiry ID *"}
-          {form.entity_type === "tour" ? (
-            <select required value={form.entity_id} onChange={(e) => setForm({ ...form, entity_id: e.target.value })} className={inp}>
-              <option value="">Choose tour…</option>
-              {(tours || []).map((t) => (
-                <option key={t.id} value={t.id}>#{t.id} — {t.title}</option>
-              ))}
-            </select>
-          ) : form.entity_type === "booking" ? (
-            <select required value={form.entity_id} onChange={(e) => setForm({ ...form, entity_id: e.target.value })} className={inp}>
-              <option value="">Choose booking…</option>
-              {(bookings || []).map((b) => (
-                <option key={b.id} value={b.id}>{b.booking_reference} — {b.customer_name}</option>
-              ))}
-            </select>
-          ) : (
-            <input type="number" min={1} required placeholder="Enquiry ID" value={form.entity_id} onChange={(e) => setForm({ ...form, entity_id: e.target.value })} className={inp} />
-          )}
-        </label>
-
-        <label className="text-xs font-semibold">
-          Staff / Guide *
-          <select required value={form.staff_user_id} onChange={(e) => setForm({ ...form, staff_user_id: e.target.value })} className={inp}>
-            <option value="">Choose staff member…</option>
-            {(staff || []).map((s) => (
-              <option key={s.id} value={s.id}>{s.full_name} ({s.roles})</option>
+      <form onSubmit={assign} className="mt-6 grid gap-4 rounded-2xl border border-border bg-white p-5 sm:grid-cols-2 lg:grid-cols-5">
+        <label className="text-xs font-semibold text-primary">
+          Booking *
+          <select required value={form.entity_id} onChange={(e) => setForm({ ...form, entity_id: e.target.value })} className={inp}>
+            <option value="">Choose booking…</option>
+            {bookings.map((b) => (
+              <option key={b.id} value={b.id}>{b.booking_reference} — {b.customer_name}</option>
             ))}
           </select>
         </label>
 
-        {msg.text && (
-          <p className={`text-sm sm:col-span-3 ${msg.type === "error" ? "text-terracotta" : "text-primary"}`}>
-            {msg.text}
-          </p>
-        )}
+        <label className="text-xs font-semibold text-primary">
+          Guide
+          <select value={form.guide_id} onChange={(e) => setForm({ ...form, guide_id: e.target.value })} className={inp}>
+            <option value="">None</option>
+            {guides.filter((g) => g.status === "active").map((g) => (
+              <option key={g.id} value={g.id}>{g.full_name} ({g.specialty || "Guide"})</option>
+            ))}
+          </select>
+        </label>
 
-        <div className="sm:col-span-3">
-          <button disabled={busy} className="btn-gold rounded-full px-6 py-2.5 text-sm font-semibold disabled:opacity-50">
-            {busy ? "Assigning…" : "Assign staff"}
+        <label className="text-xs font-semibold text-primary">
+          Vehicle
+          <select value={form.vehicle_id} onChange={(e) => setForm({ ...form, vehicle_id: e.target.value })} className={inp}>
+            <option value="">None</option>
+            {vehicles.filter((v) => v.status === "available").map((v) => (
+              <option key={v.id} value={v.id}>{v.name} ({v.capacity} pax)</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="text-xs font-semibold text-primary">
+          Role
+          <input value={form.role_label} onChange={(e) => setForm({ ...form, role_label: e.target.value })} className={inp} />
+        </label>
+
+        <div className="flex items-end">
+          <button disabled={busy} className="btn-gold w-full rounded-full py-2 text-sm font-semibold disabled:opacity-50">
+            {busy ? "Assigning…" : "Assign"}
           </button>
         </div>
       </form>
@@ -131,41 +121,34 @@ export default function AdminAssignments() {
           <div className="p-6"><Loading /></div>
         ) : error ? (
           <div className="p-6"><ErrorBox error={error} onRetry={reload} /></div>
-        ) : !data.length ? (
-          <div className="p-6"><Empty>No staff assignments yet.</Empty></div>
+        ) : !assignmentList.length ? (
+          <div className="p-6"><Empty>No active assignments.</Empty></div>
         ) : (
           <table className="w-full text-left text-sm">
             <thead className="border-b border-border text-xs uppercase tracking-wider text-muted">
               <tr>
-                <th className="px-5 py-3">Type</th>
-                <th>Target Record</th>
-                <th>Assigned Staff</th>
-                <th>Assigned By</th>
-                <th>Assigned At</th>
+                <th className="px-5 py-3">Target</th>
+                <th>Guide</th>
+                <th>Vehicle</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Assigned</th>
                 <th className="pr-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {data.map((a) => (
+              {assignmentList.map((a) => (
                 <tr key={a.id} className="hover:bg-primary/5">
-                  <td className="px-5 py-3 font-medium">{titleCase(a.entity_type)}</td>
-                  <td>
-                    {a.entity_type === "tour" ? (
-                      <Link href={`/admin/tours/${a.entity_id}`} className="font-semibold text-primary underline">{a.entity_label}</Link>
-                    ) : a.entity_type === "booking" ? (
-                      <Link href={`/admin/bookings/${a.entity_id}`} className="font-semibold text-primary underline">{a.entity_label}</Link>
-                    ) : (
-                      <span className="font-semibold text-primary">{a.entity_label}</span>
-                    )}
+                  <td className="px-5 py-3 font-semibold text-primary">
+                    {titleCase(a.entity_type)} #{a.entity_id}
                   </td>
-                  <td>
-                    <span className="font-semibold text-primary">{a.staff_name}</span>
-                    <span className="block text-xs text-muted">{a.staff_email}</span>
-                  </td>
-                  <td className="text-muted">{a.assigned_by_name || "—"}</td>
-                  <td className="whitespace-nowrap">{formatDateTime(a.created_at)}</td>
+                  <td>{a.guide_name || "—"}</td>
+                  <td>{a.vehicle_name ? `${a.vehicle_name} (${a.plate_number})` : "—"}</td>
+                  <td>{a.role_label || "—"}</td>
+                  <td><StatusBadge value={a.status} /></td>
+                  <td className="whitespace-nowrap">{formatDateTime(a.assigned_at)}</td>
                   <td className="pr-5 text-right text-xs font-semibold">
-                    <button onClick={() => remove(a)} className="text-terracotta underline">Unassign</button>
+                    <button onClick={() => setDeleteTarget(a)} className="text-terracotta underline">Remove</button>
                   </td>
                 </tr>
               ))}
@@ -173,6 +156,21 @@ export default function AdminAssignments() {
           </table>
         )}
       </div>
+
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        tone="danger"
+        title="Remove assignment?"
+        description={deleteTarget ? `Remove assignment for ${titleCase(deleteTarget.entity_type)} #${deleteTarget.entity_id}?` : ""}
+        confirmLabel="Remove"
+        busy={busy}
+        onConfirm={async () => {
+          const target = deleteTarget;
+          setDeleteTarget(null);
+          if (target) await remove(target.id);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </Container>
   );
 }

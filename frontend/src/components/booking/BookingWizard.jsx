@@ -10,11 +10,13 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { money, formatDate } from "@/lib/format";
 import { errMsg } from "@/lib/errors";
 import TourAddonsSelector from "@/components/public/TourAddonsSelector";
+import { useToast } from "@/components/ui/ToastProvider";
 
 const blank = () => ({ traveler_name: "", traveler_type: "adult", nationality: "" });
 
 export default function BookingWizard() {
   const router = useRouter();
+  const toast = useToast();
   const slug = useSearchParams().get("tour");
   const user = useAuthStore((s) => s.user);
   const status = useAuthStore((s) => s.status);
@@ -100,7 +102,12 @@ export default function BookingWizard() {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!dep) return setError("Please choose a departure date.");
+    if (!dep) {
+      const message = "Please choose a departure date.";
+      setError(message);
+      toast.error(message);
+      return;
+    }
     const payload = {
       departure_id: dep.id,
       quantity: qty,
@@ -119,9 +126,14 @@ export default function BookingWizard() {
     try {
       const res = await api.post("/bookings", payload, { headers: { "Idempotency-Key": keyRef.current.key } });
       const bk = res.data.booking;
+      toast.success("Seats reserved! Redirecting to payment…");
       if (user) router.push(`/bookings/${bk.id}`);
       else setDone(bk);
-    } catch (err) { setError(errMsg(err)); }
+    } catch (err) {
+      const m = errMsg(err);
+      setError(m);
+      toast.error(m);
+    }
     finally { setBusy(false); }
   };
 

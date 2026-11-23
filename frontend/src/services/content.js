@@ -8,16 +8,21 @@ const REVALIDATE = 3600;
 const TOUR_REVALIDATE = 300;
 
 async function api(path, revalidate = REVALIDATE) {
-  const res = await fetch(`${API}${path}`, {
-    headers: { Accept: "application/json" },
-    next: { revalidate },
-  });
-  // Missing or malformed slug -> treat as "not found" so pages call notFound()
-  if ([400, 404, 422].includes(res.status)) return null;
-  if (!res.ok) throw new Error(`API ${res.status} for ${path}`);
-  const json = await res.json();
-  return json.data;
+  try {
+    const res = await fetch(`${API}${path}`, {
+      headers: { Accept: "application/json" },
+      next: { revalidate },
+    });
+    // Missing or malformed slug -> treat as "not found" so pages call notFound()
+    if ([400, 404, 422].includes(res.status)) return null;
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.data;
+  } catch {
+    return null;
+  }
 }
+
 
 async function apiRaw(path, revalidate = 60) {
   const res = await fetch(`${API}${path}`, {

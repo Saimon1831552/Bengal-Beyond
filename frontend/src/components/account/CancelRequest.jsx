@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import StatusBadge from "@/components/ui/StatusBadge";
+import { useToast } from "@/components/ui/ToastProvider";
 import api from "@/lib/axios";
 import { formatDate } from "@/lib/format";
 import { errMsg } from "@/lib/errors";
@@ -9,6 +10,7 @@ const parse = (v) => { try { return typeof v === "string" ? JSON.parse(v) : v ||
 const CANCELLABLE = ["pending_review", "awaiting_payment", "confirmed"];
 
 export default function CancelRequest({ booking: b, requests = [], reload }) {
+  const toast = useToast();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -22,8 +24,15 @@ export default function CancelRequest({ booking: b, requests = [], reload }) {
     setBusy(true); setError("");
     try {
       await api.post(`/customer/bookings/${b.id}/cancellation-request`, { reason: reason.trim() });
-      setOpen(false); setReason(""); await reload();
-    } catch (err) { setError(errMsg(err)); } finally { setBusy(false); }
+      setOpen(false);
+      setReason("");
+      toast.success("Cancellation request submitted. Our team will review it shortly.");
+      await reload();
+    } catch (err) {
+      const m = errMsg(err);
+      setError(m);
+      toast.error(m);
+    } finally { setBusy(false); }
   };
 
   if (!canRequest && !requests.length) return null;

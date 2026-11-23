@@ -1,10 +1,18 @@
 const express = require("express");
+const { z } = require("zod");
 const { pool } = require("../../config/db");
 const AppError = require("../../utils/appError");
 const asyncHandler = require("../../utils/asynchandler");
 const { sendSuccess } = require("../../utils/response");
+const validate = require("../../middleware/validate");
+const { newsletterSignup } = require("../../middleware/apiRateLimit");
 
 const router = express.Router();
+
+const newsletterBodySchema = z.object({
+  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+  full_name: z.string().trim().max(160).optional().nullable(),
+}).strict();
 
 /* ============================================================================
  * 1. PUBLISHED FAQs  (GET /api/public/faqs)
@@ -84,6 +92,8 @@ router.get(
  * ========================================================================== */
 router.post(
   "/newsletter",
+  newsletterSignup,
+  validate({ body: newsletterBodySchema }),
   asyncHandler(async (req, res) => {
     const email = String(req.body.email || "").trim().toLowerCase();
     const fullName = req.body.full_name ? String(req.body.full_name).trim().slice(0, 160) : null;

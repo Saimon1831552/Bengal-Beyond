@@ -2,6 +2,8 @@
 import { useState } from "react";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox, Empty } from "@/components/account/State";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
@@ -11,36 +13,40 @@ import { errMsg } from "@/lib/errors";
 const inp = "mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm";
 
 export default function AdminCampaigns() {
+  const toast = useToast();
   const { data, error, loading, reload } = useFetch("/admin/campaigns");
   const [form, setForm] = useState({ name: "", subject: "", audience: "all_subscribers", body_html: "" });
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState({ type: "", text: "" });
+  const [sendingTarget, setSendingTarget] = useState(null);
+  const [dispatching, setDispatching] = useState(false);
 
   const create = async (e) => {
     e.preventDefault();
     setBusy(true);
-    setMsg({ type: "", text: "" });
     try {
       await api.post("/admin/campaigns", form);
       setForm({ name: "", subject: "", audience: "all_subscribers", body_html: "" });
-      setMsg({ type: "ok", text: "Campaign draft created." });
+      toast.success("Campaign draft saved.");
       await reload();
     } catch (err) {
-      setMsg({ type: "error", text: errMsg(err) });
+      toast.error(errMsg(err));
     } finally {
       setBusy(false);
     }
   };
 
-  const dispatch = async (c) => {
-    if (!window.confirm(`Queue campaign "${c.name}" to ${titleCase(c.audience)}?`)) return;
-    setMsg({ type: "", text: "" });
+  const confirmDispatch = async () => {
+    if (!sendingTarget) return;
+    setDispatching(true);
     try {
-      const res = await api.post(`/admin/campaigns/${c.id}/send`);
-      setMsg({ type: "ok", text: `Queued ${res.data?.data?.queued ?? 0} emails in the notification worker.` });
+      const res = await api.post(`/admin/campaigns/${sendingTarget.id}/send`);
+      toast.success(`Queued ${res.data?.data?.queued ?? 0} emails in the notification worker.`);
+      setSendingTarget(null);
       await reload();
     } catch (err) {
-      setMsg({ type: "error", text: errMsg(err) });
+      toast.error(errMsg(err));
+    } finally {
+      setDispatching(false);
     }
   };
 
@@ -72,8 +78,6 @@ export default function AdminCampaigns() {
           Email HTML / body *
           <textarea rows={4} required placeholder="<p>Explore Bangladesh this winter...</p>" value={form.body_html} onChange={(e) => setForm({ ...form, body_html: e.target.value })} className={inp} />
         </label>
-
-        {msg.text && <p className={`text-sm sm:col-span-3 ${msg.type === "error" ? "text-terracotta" : "text-primary"}`}>{msg.text}</p>}
 
         <div className="sm:col-span-3">
           <button disabled={busy} className="btn-gold rounded-full px-6 py-2.5 text-sm font-semibold disabled:opacity-50">
@@ -108,7 +112,7 @@ export default function AdminCampaigns() {
                   <td>{c.sent_at ? formatDateTime(c.sent_at) : "—"}</td>
                   <td className="pr-5 text-right text-xs font-semibold">
                     {c.status === "draft" && (
-                      <button onClick={() => dispatch(c)} className="btn-gold rounded-full px-4 py-1.5 text-xs font-semibold">
+                      <button onClick={() => setSendingTarget(c)} className="btn-gold rounded-full px-4 py-1.5 text-xs font-semibold">
                         Queue &amp; Send
                       </button>
                     )}
@@ -119,6 +123,21 @@ export default function AdminCampaigns() {
           </table>
         )}
       </div>
+
+      <ConfirmModal
+        open={Boolean(sendingTarget)}
+        tone="primary"
+        title="Queue email campaign?"
+        description={
+          sendingTarget
+            ? `This will queue "${sendingTarget.name}" (${sendingTarget.subject}) to ${titleCase(sendingTarget.audience)} for immediate delivery by the notification worker.`
+            : ""
+        }
+        confirmLabel="Queue & Send"
+        busy={dispatching}
+        onConfirm={confirmDispatch}
+        onCancel={() => setSendingTarget(null)}
+      />
     </Container>
   );
 }

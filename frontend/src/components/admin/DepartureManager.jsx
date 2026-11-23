@@ -1,6 +1,8 @@
 "use client";
 import { useState } from "react";
 import StatusBadge from "@/components/ui/StatusBadge";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox } from "@/components/account/State";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
@@ -10,16 +12,25 @@ import { errMsg } from "@/lib/errors";
 const inp = "mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none focus:border-accent";
 
 export default function DepartureManager({ tourId, currency, basePrice }) {
+  const toast = useToast();
   const { data, error, loading, reload } = useFetch(`/admin/departures?tour_id=${tourId}&limit=100`);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState("");
-  const [msg, setMsg] = useState("");
+  const [confirmAction, setConfirmAction] = useState(null); // { title, description, confirmLabel, tone, run }
 
-  const run = async (name, fn) => {
-    setBusy(name); setMsg("");
-    try { await fn(); await reload(); return true; }
-    catch (e) { setMsg(errMsg(e)); return false; }
-    finally { setBusy(""); }
+  const run = async (name, fn, okMsg) => {
+    setBusy(name);
+    try {
+      await fn();
+      if (okMsg) toast.success(okMsg);
+      await reload();
+      return true;
+    } catch (e) {
+      toast.error(errMsg(e));
+      return false;
+    } finally {
+      setBusy("");
+    }
   };
 
   const newForm = () => setForm({ starts_at: "", ends_at: "", seat_capacity: 20, price_override: "" });
@@ -27,30 +38,47 @@ export default function DepartureManager({ tourId, currency, basePrice }) {
 
   const save = async (e) => {
     e.preventDefault();
-    const body = { starts_at: fromLocalInput(form.starts_at), seat_capacity: Number(form.seat_capacity) };
-    const ok = await run("save", () => {
-      if (form.id) {
-        body.ends_at = fromLocalInput(form.ends_at);
-        body.price_override = form.price_override === "" ? null : Number(form.price_override);
-        return api.patch(`/admin/departures/${form.id}`, body);
-      }
-      body.tour_id = tourId;
-      if (form.ends_at) body.ends_at = fromLocalInput(form.ends_at);
-      if (form.price_override !== "") body.price_override = Number(form.price_override);
-      return api.post("/admin/departures", body);
-    });
+    const body = { tour_id: Number(tourId), starts_at: fromLocalInput(form.starts_at), seat_capacity: Number(form.seat_capacity) };
+    const ok = await run(
+      "save",
+      () => {
+        if (form.id) {
+          body.ends_at = fromLocalInput(form.ends_at);
+          body.price_override = form.price_override === "" ? null : Number(form.price_override);
+          return api.patch(`/admin/departures/${form.id}`, body);
+        }
+        if (form.ends_at) body.ends_at = fromLocalInput(form.ends_at);
+        if (form.price_override !== "") body.price_override = Number(form.price_override);
+        return api.post("/admin/departures", body);
+      },
+      form.id ? "Departure updated." : "Departure added."
+    );
     if (ok) setForm(null);
   };
 
   const setStatus = (d, status) => {
-    const warn = status === "cancelled"
-      ? "Cancel this departure? Customers who already booked are NOT cancelled or refunded automatically."
-      : "Mark this departure as completed?";
-    if (window.confirm(warn)) run(`${d.id}-${status}`, () => api.patch(`/admin/departures/${d.id}/status`, { status }));
+    setConfirmAction({
+      title: status === "cancelled" ? "Cancel this departure?" : "Mark departure completed?",
+      description:
+        status === "cancelled"
+          ? "Customers who already booked are NOT cancelled or refunded automatically."
+          : "This departure will be marked as completed.",
+      confirmLabel: status === "cancelled" ? "Cancel departure" : "Mark completed",
+      tone: status === "cancelled" ? "danger" : "primary",
+      run: () => run(`${d.id}-${status}`, () => api.patch(`/admin/departures/${d.id}/status`, { status }), `Departure marked ${status}.`),
+    });
   };
+
   const remove = (d) => {
-    if (window.confirm("Delete this departure? Only possible if it has no bookings.")) run(`${d.id}-del`, () => api.delete(`/admin/departures/${d.id}`));
+    setConfirmAction({
+      title: "Delete this departure?",
+      description: "Only possible if this departure has no bookings.",
+      confirmLabel: "Delete departure",
+      tone: "danger",
+      run: () => run(`${d.id}-del`, () => api.delete(`/admin/departures/${d.id}`), "Departure deleted."),
+    });
   };
+
   const f = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
   return (
@@ -73,7 +101,6 @@ export default function DepartureManager({ tourId, currency, basePrice }) {
           </div>
         </form>
       )}
-      {msg && <p role="alert" className="mt-4 text-sm text-terracotta">{msg}</p>}
 
       <div className="mt-5 overflow-x-auto">
         {loading ? <Loading /> : error ? <ErrorBox error={error} onRetry={reload} /> : !data.length ? <p className="text-sm text-muted">No departures yet. Customers can&apos;t book this tour until you add one.</p> : (
@@ -103,6 +130,21 @@ export default function DepartureManager({ tourId, currency, basePrice }) {
         )}
       </div>
       <p className="mt-3 text-xs text-muted">&ldquo;Seats sold&rdquo; counts paid bookings. Seats held for unpaid bookings (15 minutes) are subtracted automatically at booking time.</p>
+
+      <ConfirmModal
+        open={Boolean(confirmAction)}
+        tone={confirmAction?.tone || "danger"}
+        title={confirmAction?.title}
+        description={confirmAction?.description}
+        confirmLabel={confirmAction?.confirmLabel || "Confirm"}
+        busy={Boolean(busy)}
+        onConfirm={async () => {
+          const fn = confirmAction?.run;
+          setConfirmAction(null);
+          if (fn) await fn();
+        }}
+        onCancel={() => setConfirmAction(null)}
+      />
     </section>
   );
 }

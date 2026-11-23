@@ -2,6 +2,8 @@
 import { useState } from "react";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox, Empty } from "@/components/account/State";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
@@ -12,11 +14,13 @@ const inp = "mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text
 const BLANK = { title: "", slug: "", body: "", seo_title: "", seo_description: "", status: "published" };
 
 export default function AdminPages() {
+  const toast = useToast();
   const { data, error, loading, reload } = useFetch("/admin/pages");
   const [form, setForm] = useState(BLANK);
   const [editingId, setEditingId] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState({ type: "", text: "" });
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const startEdit = (p) => {
     setEditingId(p.id);
@@ -38,28 +42,36 @@ export default function AdminPages() {
   const save = async (e) => {
     e.preventDefault();
     setBusy(true);
-    setMsg({ type: "", text: "" });
     try {
       if (editingId) {
         await api.patch(`/admin/pages/${editingId}`, form);
-        setMsg({ type: "ok", text: "Page updated." });
+        toast.success("Page updated.");
       } else {
         await api.post("/admin/pages", form);
-        setMsg({ type: "ok", text: "Page created." });
+        toast.success("Page created.");
       }
       reset();
       await reload();
     } catch (err) {
-      setMsg({ type: "error", text: errMsg(err) });
+      toast.error(errMsg(err));
     } finally {
       setBusy(false);
     }
   };
 
-  const remove = async (p) => {
-    if (!window.confirm(`Delete page "${p.title}"?`)) return;
-    await api.delete(`/admin/pages/${p.id}`);
-    await reload();
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/admin/pages/${deleteTarget.id}`);
+      toast.success(`Deleted page "${deleteTarget.title}".`);
+      setDeleteTarget(null);
+      await reload();
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -101,8 +113,6 @@ export default function AdminPages() {
           <input value={form.seo_description} onChange={(e) => setForm({ ...form, seo_description: e.target.value })} className={inp} />
         </label>
 
-        {msg.text && <p className={`text-sm sm:col-span-3 ${msg.type === "error" ? "text-terracotta" : "text-primary"}`}>{msg.text}</p>}
-
         <div className="flex gap-3 sm:col-span-3">
           <button disabled={busy} className="btn-gold rounded-full px-6 py-2.5 text-sm font-semibold disabled:opacity-50">
             {busy ? "Saving…" : editingId ? "Update page" : "Create page"}
@@ -128,13 +138,13 @@ export default function AdminPages() {
               {data.map((p) => (
                 <tr key={p.id} className="hover:bg-primary/5">
                   <td className="px-5 py-3 font-semibold text-primary">{p.title}</td>
-                  <td className="font-mono text-xs text-muted">/{p.slug}</td>
+                  <td className="font-mono text-xs text-muted">/pages/{p.slug}</td>
                   <td className="text-xs text-muted">{p.seo_title || "—"}</td>
                   <td><StatusBadge value={p.status} /></td>
                   <td className="whitespace-nowrap">{formatDateTime(p.updated_at)}</td>
                   <td className="space-x-3 whitespace-nowrap pr-5 text-right text-xs font-semibold">
                     <button onClick={() => startEdit(p)} className="text-primary underline">Edit</button>
-                    <button onClick={() => remove(p)} className="text-terracotta underline">Delete</button>
+                    <button onClick={() => setDeleteTarget(p)} className="text-terracotta underline">Delete</button>
                   </td>
                 </tr>
               ))}
@@ -142,6 +152,17 @@ export default function AdminPages() {
           </table>
         )}
       </div>
+
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        tone="danger"
+        title="Delete CMS page?"
+        description={deleteTarget ? `Delete "${deleteTarget.title}" (/pages/${deleteTarget.slug})? Visitors following this link will see a 404.` : ""}
+        confirmLabel="Delete page"
+        busy={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </Container>
   );
 }

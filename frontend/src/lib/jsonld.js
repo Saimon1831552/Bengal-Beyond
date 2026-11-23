@@ -16,7 +16,12 @@ export const organizationJsonLd = () => {
     email: contact.email || undefined,
     telephone: contact.phone || undefined,
     address: contact.address.city
-      ? { "@type": "PostalAddress", streetAddress: contact.address.street, addressLocality: contact.address.city, addressCountry: contact.address.country }
+      ? {
+          "@type": "PostalAddress",
+          streetAddress: contact.address.street,
+          addressLocality: contact.address.city,
+          addressCountry: contact.address.country,
+        }
       : undefined,
     sameAs: Object.values(social).filter(Boolean),
   });
@@ -53,9 +58,10 @@ export const destinationJsonLd = (d) =>
     description: d.summary,
     url: absoluteUrl(`/destinations/${d.slug}`),
     image: d.image ? absoluteUrl(d.image) : undefined,
-    geo: d.lat != null && d.lng != null
-      ? { "@type": "GeoCoordinates", latitude: d.lat, longitude: d.lng }
-      : undefined,
+    geo:
+      d.lat != null && d.lng != null
+        ? { "@type": "GeoCoordinates", latitude: d.lat, longitude: d.lng }
+        : undefined,
     touristType: d.interests?.length ? d.interests : undefined,
     containedInPlace: { "@type": "Country", name: "Bangladesh" },
   });
@@ -69,14 +75,36 @@ export const tourJsonLd = (t) =>
     description: t.summary,
     url: absoluteUrl(`/tours/${t.slug}`),
     image: t.image ? absoluteUrl(t.image) : undefined,
-    touristType: t.category,
-    itinerary: t.destinations?.map((slug) => ({ "@type": "Place", name: slug, url: absoluteUrl(`/destinations/${slug}`) })),
+    touristType: t.categories?.length ? t.categories : t.category,
+    duration: t.days ? `P${t.days}D` : undefined,
+    itinerary: t.destinations?.map((slug) => ({
+      "@type": "Place",
+      name: slug.replace(/-/g, " "),
+      url: absoluteUrl(`/destinations/${slug}`),
+    })),
     provider: { "@id": absoluteUrl("/#organization") },
-    offers: t.price
-      ? { "@type": "Offer", price: t.price, priceCurrency: t.currency || "USD", availability: "https://schema.org/InStock", url: absoluteUrl(`/tours/${t.slug}`) }
-      : undefined,
+    offers:
+      t.price != null
+        ? {
+            "@type": "Offer",
+            price: Number(t.price).toFixed(2),
+            priceCurrency: t.currency || "BDT",
+            availability:
+              t.hasUpcomingDepartures === false
+                ? "https://schema.org/OutOfStock"
+                : "https://schema.org/InStock",
+            url: absoluteUrl(`/tours/${t.slug}`),
+            seller: { "@id": absoluteUrl("/#organization") },
+          }
+        : undefined,
     aggregateRating: t.rating?.count
-      ? { "@type": "AggregateRating", ratingValue: t.rating.value, reviewCount: t.rating.count, bestRating: 5, worstRating: 1 }
+      ? {
+          "@type": "AggregateRating",
+          ratingValue: t.rating.value,
+          reviewCount: t.rating.count,
+          bestRating: 5,
+          worstRating: 1,
+        }
       : undefined,
   });
 
@@ -89,7 +117,7 @@ export const articleJsonLd = (p) =>
     image: p.image ? absoluteUrl(p.image) : undefined,
     datePublished: p.publishedAt,
     dateModified: p.updatedAt || p.publishedAt,
-    author: { "@type": "Person", name: p.author },
+    author: { "@type": "Person", name: p.author || siteConfig.name },
     publisher: { "@id": absoluteUrl("/#organization") },
     mainEntityOfPage: absoluteUrl(`/blog/${p.slug}`),
   });
@@ -98,5 +126,9 @@ export const faqJsonLd = (faqs) =>
   clean({
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    mainEntity: faqs.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })),
+    mainEntity: faqs.map((f) => ({
+      "@type": "Question",
+      name: f.q,
+      acceptedAnswer: { "@type": "Answer", text: f.a },
+    })),
   });

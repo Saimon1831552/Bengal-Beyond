@@ -1,32 +1,42 @@
 const { ZodError } = require("zod");
 const AppError = require("../utils/appError");
 
-function formatIssues(error) {
-  return error.issues.map((issue) => ({
-    path: issue.path.join("."),
-    message: issue.message,
-  }));
-}
-
 /**
- * validate({ params, query, body })  each value is a zod schema (all optional).
- * Parsed (coerced, defaulted, trimmed) values are put on req.validated.
- * Read req.validated.body, not req.body, in controllers.
+ * Validates req.body, req.query, and/or req.params against Zod schemas.
+ * Parsed & coerced values replace the original request objects AND populate
+ * req.validated so both patterns work seamlessly.
  */
-module.exports = function validate(schemas) {
-  return (req, res, next) => {
+function validate({ body, query, params } = {}) {
+  return (req, _res, next) => {
     try {
-      const validated = {};
-
-      for (const part of ["params", "query", "body"]) {
-        if (schemas[part]) validated[part] = schemas[part].parse(req[part]);
+      req.validated = req.validated || {};
+      if (params) {
+        req.params = params.parse(req.params);
+        req.validated.params = req.params;
       }
-
-      req.validated = validated;
-      next();
-    } catch (error) {
-      if (error instanceof ZodError) return next(AppError.validation(formatIssues(error)));
-      return next(error);
+      if (query) {
+        req.query = query.parse(req.query);
+        req.validated.query = req.query;
+      }
+      if (body) {
+        req.body = body.parse(req.body);
+        req.validated.body = req.body;
+      }
+      return next();
+    } catch (err) {
+      if (err instanceof ZodError) {
+        const issues = err.issues.map((i) => ({
+          field: i.path.join(".") || "root",
+          message: i.message,
+        }));
+        const firstMsg = issues[0] ? `${issues[0].field}: ${issues[0].message}` : "Invalid request input.";
+        const appErr = AppError.badRequest(firstMsg, "VALIDATION_ERROR");
+        appErr.details = issues;
+        return next(appErr);
+      }
+      return next(err);
     }
   };
-};
+}
+
+module.exports = validate;

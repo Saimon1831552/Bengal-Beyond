@@ -1,17 +1,24 @@
 "use client";
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import Container from "@/components/ui/Container";
 import Magnetic from "@/components/fx/Magnetic";
-import { burst } from "@/lib/burst";
 import { siteConfig } from "@/config/site";
 import { isAppRoute } from "@/lib/access";
+import NewsletterSignup from "@/components/public/NewsletterSignup";
 
 const columns = [
   { title: "Explore", links: [["/destinations", "Destinations"], ["/tours", "Tours"], ["/blog", "Travel blog"]] },
-  { title: "Company", links: [["/about", "About us"], ["/contact", "Contact"]] },
+  {
+    title: "Company",
+    links: [
+      ["/pages/about", "About Us"],
+      ["/pages/terms", "Terms & Conditions"],
+      ["/pages/privacy", "Privacy Policy"],
+      ["/contact", "Contact"],
+    ],
+  },
 ];
 
 const socials = [
@@ -20,39 +27,6 @@ const socials = [
   { key: "youtube", label: "YouTube", icon: <><rect x="3" y="6" width="18" height="12" rx="4" /><path d="M10 9.5v5l4.5-2.5z" /></> },
   { key: "x", label: "X", icon: <path d="M5 5l14 14M19 5L5 19" /> },
 ];
-
-function Newsletter() {
-  const [email, setEmail] = useState("");
-  const [state, setState] = useState("idle"); // idle | loading | done
-
-  const submit = async (e) => {
-    const b = e.currentTarget.querySelector("button").getBoundingClientRect();
-    e.preventDefault();
-    setState("loading");
-    // TODO: POST to a real newsletter endpoint. This only simulates success.
-    await new Promise((r) => setTimeout(r, 900));
-    setState("done");
-    burst(b.left + b.width / 2, b.top + b.height / 2, 28);
-    setEmail("");
-  };
-
-  return (
-    <form onSubmit={submit} className="mt-5 flex max-w-sm gap-2 rounded-full border border-white/15 bg-white/5 p-1.5 transition-shadow focus-within:shadow-[0_0_0_3px_rgba(214,168,95,.45)]">
-      <input
-        type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
-        placeholder="Your email" aria-label="Email address"
-        className="min-w-0 flex-1 bg-transparent px-4 text-sm text-white outline-none placeholder:text-sand/50"
-      />
-      <motion.button whileTap={{ scale: 0.94 }} disabled={state !== "idle"} className="rounded-full bg-gold px-5 py-2 text-sm font-semibold text-primary-dark disabled:opacity-90">
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.span key={state} initial={{ y: 12, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -12, opacity: 0 }} className="block">
-            {state === "idle" ? "Subscribe" : state === "loading" ? "…" : "✓ Subscribed"}
-          </motion.span>
-        </AnimatePresence>
-      </motion.button>
-    </form>
-  );
-}
 
 export default function Footer({ info }) {
   const pathname = usePathname();
@@ -110,7 +84,7 @@ export default function Footer({ info }) {
           <div>
             <p className="text-sm font-semibold uppercase tracking-widest text-gold">Newsletter</p>
             <p className="mt-4 text-sm text-sand/80">Travel stories and offers, once a month.</p>
-            <Newsletter />
+            <NewsletterSignup />
           </div>
         </Container>
         <Container className="border-t border-white/10 py-5 text-xs text-sand/70">

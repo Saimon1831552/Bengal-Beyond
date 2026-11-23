@@ -3,6 +3,8 @@ import { useState } from "react";
 import Link from "next/link";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox } from "@/components/account/State";
 import { useCan } from "./AdminShell";
 import RefundPanel from "./RefundPanel";
@@ -11,7 +13,6 @@ import api from "@/lib/axios";
 import { money, formatDate, formatDateTime, titleCase } from "@/lib/format";
 import { errMsg } from "@/lib/errors";
 
-// mirrors the transitions enforced in admin-booking.repository.js
 const NEXT = {
   pending_review: ["awaiting_payment", "confirmed", "rejected", "cancelled"],
   awaiting_payment: ["confirmed", "rejected", "cancelled", "expired"],
@@ -24,28 +25,47 @@ const box = "rounded-2xl border border-border bg-white p-5";
 
 export default function AdminBookingDetail({ id }) {
   const can = useCan();
+  const toast = useToast();
   const { data: b, error, loading, reload } = useFetch(`/admin/bookings/${encodeURIComponent(id)}`);
   const [note, setNote] = useState("");
   const [visibility, setVisibility] = useState("internal");
   const [busy, setBusy] = useState("");
-  const [msg, setMsg] = useState({ type: "", text: "" });
+  const [confirmStatus, setConfirmStatus] = useState(null);
 
   if (loading) return <Container className="py-8"><Loading /></Container>;
   if (error) return <Container className="py-8"><ErrorBox error={error} onRetry={reload} /></Container>;
 
   const manage = can("bookings.manage");
   const run = async (name, fn, ok) => {
-    setBusy(name); setMsg({ type: "", text: "" });
-    try { await fn(); setMsg({ type: "ok", text: ok }); await reload(); }
-    catch (e) { setMsg({ type: "error", text: errMsg(e) }); }
-    finally { setBusy(""); }
+    setBusy(name);
+    try {
+      await fn();
+      toast.success(ok);
+      await reload();
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const applyStatus = async (status) => {
+    await run(
+      status,
+      () => api.patch(`/admin/bookings/${b.id}/status`, { status, ...(note.trim() && { note: note.trim() }) }),
+      `Status changed to ${titleCase(status)}.`
+    );
+    setNote("");
   };
 
   const changeStatus = (status) => {
-    if (danger.has(status) && !window.confirm(`Mark this booking as "${titleCase(status)}"? This cannot be undone.`)) return;
-    run(status, () => api.patch(`/admin/bookings/${b.id}/status`, { status, ...(note.trim() && { note: note.trim() }) }),
-      `Status changed to ${titleCase(status)}.`).then(() => setNote(""));
+    if (danger.has(status)) {
+      setConfirmStatus(status);
+      return;
+    }
+    applyStatus(status);
   };
+
   const addNote = (e) => {
     e.preventDefault();
     run("note", () => api.post(`/admin/bookings/${b.id}/notes`, { note: note.trim(), visibility }), "Note added.").then(() => setNote(""));
@@ -127,7 +147,6 @@ export default function AdminBookingDetail({ id }) {
               ))}
             </div>
           )}
-          {msg.text && <p role={msg.type === "error" ? "alert" : "status"} className={`mt-4 text-sm ${msg.type === "error" ? "text-terracotta" : "text-primary"}`}>{msg.text}</p>}
         </section>
       )}
 
@@ -149,6 +168,21 @@ export default function AdminBookingDetail({ id }) {
           ) : <p className="mt-2 text-sm text-muted">No notes.</p>}
         </section>
       </div>
+
+      <ConfirmModal
+        open={Boolean(confirmStatus)}
+        tone="danger"
+        title={`Mark booking as "${confirmStatus ? titleCase(confirmStatus) : ""}"?`}
+        description="This releases any reserved seats and cannot be undone. If the customer already paid, create a refund afterwards."
+        confirmLabel={confirmStatus ? titleCase(confirmStatus) : "Confirm"}
+        busy={Boolean(busy)}
+        onConfirm={async () => {
+          const st = confirmStatus;
+          setConfirmStatus(null);
+          if (st) await applyStatus(st);
+        }}
+        onCancel={() => setConfirmStatus(null)}
+      />
     </Container>
   );
 }

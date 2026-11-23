@@ -2,145 +2,135 @@
 import { useState } from "react";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox, Empty } from "@/components/account/State";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
 import { money, titleCase } from "@/lib/format";
 import { errMsg } from "@/lib/errors";
 
-const PROP_TYPES = ["hotel", "resort", "eco_lodge", "boat_cabin", "guesthouse"];
-const inp = "mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm";
-const BLANK = {
-  destination_id: "",
-  name: "",
-  property_type: "hotel",
-  star_rating: "",
-  address: "",
-  contact_person: "",
-  contact_phone: "",
-  nightly_rate: "0",
-  status: "active",
-  notes: "",
-};
+const EMPTY = { destination_id: "", name: "", type: "hotel", star_rating: "4", base_rate_per_night: "", currency_code: "BDT", status: "active" };
+const inp = "mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none focus:border-accent";
+
+const toArray = (v) => (Array.isArray(v) ? v : Array.isArray(v?.items) ? v.items : []);
 
 export default function AdminAccommodation() {
-  const { data: destinations } = useFetch("/admin/destinations");
+  const toast = useToast();
   const { data, error, loading, reload } = useFetch("/admin/accommodation");
-  const [form, setForm] = useState(BLANK);
-  const [editingId, setEditingId] = useState(null);
+  const { data: destinationsRaw } = useFetch("/admin/destinations?limit=100");
+  const destinations = toArray(destinationsRaw);
+  const rows = toArray(data);
+
+  const [form, setForm] = useState(EMPTY);
+  const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState({ type: "", text: "" });
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const startEdit = (a) => {
-    setEditingId(a.id);
-    setForm({
-      destination_id: a.destination_id ? String(a.destination_id) : "",
-      name: a.name,
-      property_type: a.property_type,
-      star_rating: a.star_rating ?? "",
-      address: a.address || "",
-      contact_person: a.contact_person || "",
-      contact_phone: a.contact_phone || "",
-      nightly_rate: String(a.nightly_rate),
-      status: a.status,
-      notes: a.notes || "",
-    });
-  };
-
-  const reset = () => {
-    setEditingId(null);
-    setForm(BLANK);
-  };
-
-  const save = async (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
-    setMsg({ type: "", text: "" });
     try {
       const payload = {
-        ...form,
         destination_id: form.destination_id ? Number(form.destination_id) : null,
-        star_rating: form.star_rating === "" ? null : Number(form.star_rating),
-        nightly_rate: Number(form.nightly_rate),
+        name: form.name.trim(),
+        type: form.type,
+        star_rating: form.star_rating ? Number(form.star_rating) : null,
+        base_rate_per_night: Number(form.base_rate_per_night),
+        currency_code: form.currency_code.trim().toUpperCase() || "BDT",
+        status: form.status,
       };
-      if (editingId) {
-        await api.patch(`/admin/accommodation/${editingId}`, payload);
-        setMsg({ type: "ok", text: "Partner property updated." });
+      if (editing) {
+        await api.patch(`/admin/accommodation/${editing}`, payload);
+        toast.success("Accommodation updated.");
       } else {
         await api.post("/admin/accommodation", payload);
-        setMsg({ type: "ok", text: "Partner property added." });
+        toast.success("Accommodation added.");
       }
-      reset();
+      setForm(EMPTY);
+      setEditing(null);
       await reload();
     } catch (err) {
-      setMsg({ type: "error", text: errMsg(err) });
+      toast.error(errMsg(err));
     } finally {
       setBusy(false);
     }
   };
 
-  const remove = async (a) => {
-    if (!window.confirm(`Delete partner property "${a.name}"?`)) return;
-    await api.delete(`/admin/accommodation/${a.id}`);
-    await reload();
+  const edit = (a) => {
+    setEditing(a.id);
+    setForm({
+      destination_id: a.destination_id || "",
+      name: a.name || "",
+      type: a.type || "hotel",
+      star_rating: a.star_rating ?? "4",
+      base_rate_per_night: a.base_rate_per_night ?? "",
+      currency_code: a.currency_code || "BDT",
+      status: a.status || "active",
+    });
+  };
+
+  const remove = async (id) => {
+    setBusy(true);
+    try {
+      await api.delete(`/admin/accommodation/${id}`);
+      toast.success("Accommodation deleted.");
+      await reload();
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <Container as="main" className="py-8">
-      <h1 className="text-3xl text-primary">Accommodation partners</h1>
-      <p className="mt-1 text-sm text-muted">Manage partner hotels, resorts, eco-lodges, and overnight houseboats by destination.</p>
+      <div>
+        <h1 className="text-3xl text-primary">Accommodation partners</h1>
+        <p className="mt-1 text-sm text-muted">Manage partner hotels, resorts, houseboats, and eco-camps.</p>
+      </div>
 
-      <form onSubmit={save} className="mt-6 grid gap-4 rounded-2xl border border-border bg-white p-6 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="sm:col-span-2 lg:col-span-4">
-          <h2 className="text-lg text-primary">{editingId ? `Edit property #${editingId}` : "Add partner property"}</h2>
-        </div>
-
-        <label className="text-xs font-semibold lg:col-span-2">
+      <form onSubmit={submit} className="mt-6 grid gap-4 rounded-2xl border border-border bg-white p-5 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="text-xs font-semibold text-primary">
           Property name *
-          <input required placeholder="Seagull Beach Resort" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inp} />
+          <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inp} />
         </label>
 
-        <label className="text-xs font-semibold">
+        <label className="text-xs font-semibold text-primary">
           Destination
           <select value={form.destination_id} onChange={(e) => setForm({ ...form, destination_id: e.target.value })} className={inp}>
             <option value="">Select destination…</option>
-            {(destinations || []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {destinations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </label>
 
-        <label className="text-xs font-semibold">
-          Property type
-          <select value={form.property_type} onChange={(e) => setForm({ ...form, property_type: e.target.value })} className={inp}>
-            {PROP_TYPES.map((t) => <option key={t} value={t}>{titleCase(t)}</option>)}
+        <label className="text-xs font-semibold text-primary">
+          Type
+          <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} className={inp}>
+            <option value="hotel">Hotel</option>
+            <option value="resort">Resort</option>
+            <option value="eco_camp">Eco Camp</option>
+            <option value="houseboat">Houseboat</option>
+            <option value="guesthouse">Guesthouse</option>
           </select>
         </label>
 
-        <label className="text-xs font-semibold">
+        <label className="text-xs font-semibold text-primary">
           Star rating (1–5)
           <input type="number" min={1} max={5} value={form.star_rating} onChange={(e) => setForm({ ...form, star_rating: e.target.value })} className={inp} />
         </label>
 
-        <label className="text-xs font-semibold">
-          Nightly rate (BDT)
-          <input type="number" min={0} step="0.01" value={form.nightly_rate} onChange={(e) => setForm({ ...form, nightly_rate: e.target.value })} className={inp} />
+        <label className="text-xs font-semibold text-primary">
+          Base rate / night *
+          <input required type="number" min={0} step="0.01" value={form.base_rate_per_night} onChange={(e) => setForm({ ...form, base_rate_per_night: e.target.value })} className={inp} />
         </label>
 
-        <label className="text-xs font-semibold">
-          Contact person
-          <input value={form.contact_person} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} className={inp} />
+        <label className="text-xs font-semibold text-primary">
+          Currency
+          <input maxLength={3} value={form.currency_code} onChange={(e) => setForm({ ...form, currency_code: e.target.value })} className={inp} />
         </label>
 
-        <label className="text-xs font-semibold">
-          Contact phone
-          <input value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} className={inp} />
-        </label>
-
-        <label className="text-xs font-semibold sm:col-span-2">
-          Address
-          <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={inp} />
-        </label>
-
-        <label className="text-xs font-semibold">
+        <label className="text-xs font-semibold text-primary">
           Status
           <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className={inp}>
             <option value="active">Active</option>
@@ -148,18 +138,14 @@ export default function AdminAccommodation() {
           </select>
         </label>
 
-        {msg.text && (
-          <p className={`text-sm sm:col-span-2 lg:col-span-4 ${msg.type === "error" ? "text-terracotta" : "text-primary"}`}>
-            {msg.text}
-          </p>
-        )}
-
-        <div className="flex gap-3 sm:col-span-2 lg:col-span-4">
-          <button disabled={busy} className="btn-gold rounded-full px-6 py-2.5 text-sm font-semibold disabled:opacity-50">
-            {busy ? "Saving…" : editingId ? "Update property" : "Add property"}
+        <div className="flex items-end gap-2">
+          <button disabled={busy} className="btn-gold rounded-full px-6 py-2 text-sm font-semibold disabled:opacity-50">
+            {busy ? "Saving…" : editing ? "Update" : "Add property"}
           </button>
-          {editingId && (
-            <button type="button" onClick={reset} className="text-sm font-semibold text-primary underline">Cancel</button>
+          {editing && (
+            <button type="button" onClick={() => { setEditing(null); setForm(EMPTY); }} className="rounded-full border border-border px-4 py-2 text-sm">
+              Cancel
+            </button>
           )}
         </div>
       </form>
@@ -169,7 +155,7 @@ export default function AdminAccommodation() {
           <div className="p-6"><Loading /></div>
         ) : error ? (
           <div className="p-6"><ErrorBox error={error} onRetry={reload} /></div>
-        ) : !data.length ? (
+        ) : !rows.length ? (
           <div className="p-6"><Empty>No accommodation partners added yet.</Empty></div>
         ) : (
           <table className="w-full text-left text-sm">
@@ -177,31 +163,25 @@ export default function AdminAccommodation() {
               <tr>
                 <th className="px-5 py-3">Property</th>
                 <th>Destination</th>
-                <th>Contact</th>
-                <th>Nightly Rate</th>
+                <th>Type</th>
+                <th>Rating</th>
+                <th>Rate / night</th>
                 <th>Status</th>
                 <th className="pr-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {data.map((a) => (
+              {rows.map((a) => (
                 <tr key={a.id} className="hover:bg-primary/5">
-                  <td className="px-5 py-3">
-                    <span className="font-semibold text-primary">{a.name}</span>
-                    <span className="block text-xs text-muted">
-                      {titleCase(a.property_type)}{a.star_rating ? ` · ${a.star_rating}★` : ""}
-                    </span>
-                  </td>
-                  <td>{a.destination_name || <span className="text-muted">—</span>}</td>
-                  <td>
-                    {a.contact_person || <span className="text-muted">—</span>}
-                    {a.contact_phone && <span className="block text-xs text-muted">{a.contact_phone}</span>}
-                  </td>
-                  <td>{money(a.nightly_rate, "BDT")}</td>
+                  <td className="px-5 py-3 font-semibold text-primary">{a.name}</td>
+                  <td>{a.destination_name || "—"}</td>
+                  <td>{titleCase(a.type)}</td>
+                  <td>{a.star_rating ? `${a.star_rating} ★` : "—"}</td>
+                  <td className="font-semibold text-primary">{money(a.base_rate_per_night, a.currency_code)}</td>
                   <td><StatusBadge value={a.status} /></td>
                   <td className="space-x-3 whitespace-nowrap pr-5 text-right text-xs font-semibold">
-                    <button onClick={() => startEdit(a)} className="text-primary underline">Edit</button>
-                    <button onClick={() => remove(a)} className="text-terracotta underline">Delete</button>
+                    <button onClick={() => edit(a)} className="text-primary underline">Edit</button>
+                    <button onClick={() => setDeleteTarget(a)} className="text-terracotta underline">Delete</button>
                   </td>
                 </tr>
               ))}
@@ -209,6 +189,21 @@ export default function AdminAccommodation() {
           </table>
         )}
       </div>
+
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        tone="danger"
+        title="Delete accommodation partner?"
+        description={deleteTarget ? `Delete "${deleteTarget.name}" permanently?` : ""}
+        confirmLabel="Delete"
+        busy={busy}
+        onConfirm={async () => {
+          const target = deleteTarget;
+          setDeleteTarget(null);
+          if (target) await remove(target.id);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </Container>
   );
 }

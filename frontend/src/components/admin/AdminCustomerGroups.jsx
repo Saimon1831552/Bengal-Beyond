@@ -2,6 +2,8 @@
 import { useState } from "react";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox, Empty } from "@/components/account/State";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
@@ -11,11 +13,13 @@ const inp = "mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text
 const BLANK = { name: "", description: "", discount_percent: "5", min_bookings: 1, status: "active" };
 
 export default function AdminCustomerGroups() {
+  const toast = useToast();
   const { data, error, loading, reload } = useFetch("/admin/customer-groups");
   const [form, setForm] = useState(BLANK);
   const [editingId, setEditingId] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState({ type: "", text: "" });
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const startEdit = (g) => {
     setEditingId(g.id);
@@ -36,29 +40,37 @@ export default function AdminCustomerGroups() {
   const save = async (e) => {
     e.preventDefault();
     setBusy(true);
-    setMsg({ type: "", text: "" });
     try {
       const payload = { ...form, discount_percent: Number(form.discount_percent), min_bookings: Number(form.min_bookings) };
       if (editingId) {
         await api.patch(`/admin/customer-groups/${editingId}`, payload);
-        setMsg({ type: "ok", text: "Group updated." });
+        toast.success("Customer group updated.");
       } else {
         await api.post("/admin/customer-groups", payload);
-        setMsg({ type: "ok", text: "Customer group created." });
+        toast.success("Customer group created.");
       }
       reset();
       await reload();
     } catch (err) {
-      setMsg({ type: "error", text: errMsg(err) });
+      toast.error(errMsg(err));
     } finally {
       setBusy(false);
     }
   };
 
-  const remove = async (g) => {
-    if (!window.confirm(`Delete group "${g.name}"?`)) return;
-    await api.delete(`/admin/customer-groups/${g.id}`);
-    await reload();
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/admin/customer-groups/${deleteTarget.id}`);
+      toast.success(`Deleted group "${deleteTarget.name}".`);
+      setDeleteTarget(null);
+      await reload();
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -95,8 +107,6 @@ export default function AdminCustomerGroups() {
           <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className={inp} />
         </label>
 
-        {msg.text && <p className={`text-sm sm:col-span-4 ${msg.type === "error" ? "text-terracotta" : "text-primary"}`}>{msg.text}</p>}
-
         <div className="flex gap-3 sm:col-span-4">
           <button disabled={busy} className="btn-gold rounded-full px-6 py-2.5 text-sm font-semibold disabled:opacity-50">
             {busy ? "Saving…" : editingId ? "Update group" : "Create group"}
@@ -129,7 +139,7 @@ export default function AdminCustomerGroups() {
                   <td><StatusBadge value={g.status} /></td>
                   <td className="space-x-3 whitespace-nowrap pr-5 text-right text-xs font-semibold">
                     <button onClick={() => startEdit(g)} className="text-primary underline">Edit</button>
-                    <button onClick={() => remove(g)} className="text-terracotta underline">Delete</button>
+                    <button onClick={() => setDeleteTarget(g)} className="text-terracotta underline">Delete</button>
                   </td>
                 </tr>
               ))}
@@ -137,6 +147,17 @@ export default function AdminCustomerGroups() {
           </table>
         )}
       </div>
+
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        tone="danger"
+        title="Delete customer group?"
+        description={deleteTarget ? `Delete loyalty tier "${deleteTarget.name}"?` : ""}
+        confirmLabel="Delete group"
+        busy={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </Container>
   );
 }

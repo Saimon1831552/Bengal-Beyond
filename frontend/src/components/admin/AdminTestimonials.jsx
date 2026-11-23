@@ -2,6 +2,8 @@
 import { useState } from "react";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox, Empty } from "@/components/account/State";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
@@ -11,11 +13,13 @@ const inp = "mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text
 const BLANK = { author_name: "", author_location: "", tour_title: "", rating: 5, quote: "", is_featured: true, status: "published" };
 
 export default function AdminTestimonials() {
+  const toast = useToast();
   const { data, error, loading, reload } = useFetch("/admin/testimonials");
   const [form, setForm] = useState(BLANK);
   const [editingId, setEditingId] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState({ type: "", text: "" });
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const startEdit = (r) => {
     setEditingId(r.id);
@@ -38,29 +42,37 @@ export default function AdminTestimonials() {
   const save = async (e) => {
     e.preventDefault();
     setBusy(true);
-    setMsg({ type: "", text: "" });
     try {
       const payload = { ...form, rating: Number(form.rating), is_featured: form.is_featured ? 1 : 0 };
       if (editingId) {
         await api.patch(`/admin/testimonials/${editingId}`, payload);
-        setMsg({ type: "ok", text: "Testimonial updated." });
+        toast.success("Testimonial updated.");
       } else {
         await api.post("/admin/testimonials", payload);
-        setMsg({ type: "ok", text: "Testimonial published." });
+        toast.success("Testimonial published.");
       }
       reset();
       await reload();
     } catch (err) {
-      setMsg({ type: "error", text: errMsg(err) });
+      toast.error(errMsg(err));
     } finally {
       setBusy(false);
     }
   };
 
-  const remove = async (r) => {
-    if (!window.confirm(`Delete testimonial from "${r.author_name}"?`)) return;
-    await api.delete(`/admin/testimonials/${r.id}`);
-    await reload();
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/admin/testimonials/${deleteTarget.id}`);
+      toast.success(`Deleted testimonial from "${deleteTarget.author_name}".`);
+      setDeleteTarget(null);
+      await reload();
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -107,8 +119,6 @@ export default function AdminTestimonials() {
           </select>
         </label>
 
-        {msg.text && <p className={`text-sm sm:col-span-2 lg:col-span-4 ${msg.type === "error" ? "text-terracotta" : "text-primary"}`}>{msg.text}</p>}
-
         <div className="flex gap-3 sm:col-span-2 lg:col-span-4">
           <button disabled={busy} className="btn-gold rounded-full px-6 py-2.5 text-sm font-semibold disabled:opacity-50">
             {busy ? "Saving…" : editingId ? "Update testimonial" : "Add testimonial"}
@@ -134,12 +144,23 @@ export default function AdminTestimonials() {
               </div>
               <div className="space-x-3 text-xs font-semibold">
                 <button onClick={() => startEdit(r)} className="text-primary underline">Edit</button>
-                <button onClick={() => remove(r)} className="text-terracotta underline">Delete</button>
+                <button onClick={() => setDeleteTarget(r)} className="text-terracotta underline">Delete</button>
               </div>
             </div>
           </article>
         ))}
       </div>
+
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        tone="danger"
+        title="Delete testimonial?"
+        description={deleteTarget ? `Remove the testimonial from "${deleteTarget.author_name}"?` : ""}
+        confirmLabel="Delete testimonial"
+        busy={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </Container>
   );
 }

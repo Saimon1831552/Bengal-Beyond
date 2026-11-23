@@ -32,7 +32,7 @@ function buildWhere(f) {
     const dep = ["d.tour_id = t.id", "d.status = 'scheduled'", "d.starts_at >= UTC_TIMESTAMP()"];
     if (f.departureFrom) { dep.push("d.starts_at >= ?"); params.push(`${f.departureFrom} 00:00:00`); }
     if (f.departureTo) { dep.push("d.starts_at < DATE_ADD(?, INTERVAL 1 DAY)"); params.push(`${f.departureTo} 00:00:00`); }
-    if (f.minSeats) { dep.push("(d.seat_capacity - d.seats_reserved) >= ?"); params.push(f.minSeats); }
+    if (f.minSeats) { dep.push("(CAST(d.seat_capacity AS SIGNED) - CAST(d.seats_reserved AS SIGNED)) >= ?"); params.push(f.minSeats); }
     else if (f.availableOnly) dep.push("(d.seat_capacity > d.seats_reserved)");
     if (f.guests) {
       dep.push(`GREATEST(

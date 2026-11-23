@@ -2,6 +2,8 @@
 import { useState } from "react";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox, Empty } from "@/components/account/State";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
@@ -24,11 +26,13 @@ const BLANK = {
 };
 
 export default function AdminVehicles() {
+  const toast = useToast();
   const { data, error, loading, reload } = useFetch("/admin/vehicles");
   const [form, setForm] = useState(BLANK);
   const [editingId, setEditingId] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState({ type: "", text: "" });
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const startEdit = (v) => {
     setEditingId(v.id);
@@ -53,29 +57,37 @@ export default function AdminVehicles() {
   const save = async (e) => {
     e.preventDefault();
     setBusy(true);
-    setMsg({ type: "", text: "" });
     try {
       const payload = { ...form, seat_capacity: Number(form.seat_capacity), daily_rate: Number(form.daily_rate) };
       if (editingId) {
         await api.patch(`/admin/vehicles/${editingId}`, payload);
-        setMsg({ type: "ok", text: "Vehicle updated." });
+        toast.success("Vehicle updated.");
       } else {
         await api.post("/admin/vehicles", payload);
-        setMsg({ type: "ok", text: "Vehicle added to fleet." });
+        toast.success("Vehicle added to fleet.");
       }
       reset();
       await reload();
     } catch (err) {
-      setMsg({ type: "error", text: errMsg(err) });
+      toast.error(errMsg(err));
     } finally {
       setBusy(false);
     }
   };
 
-  const remove = async (v) => {
-    if (!window.confirm(`Delete vehicle "${v.name}" (${v.registration_number})?`)) return;
-    await api.delete(`/admin/vehicles/${v.id}`);
-    await reload();
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/admin/vehicles/${deleteTarget.id}`);
+      toast.success(`Deleted vehicle "${deleteTarget.name}".`);
+      setDeleteTarget(null);
+      await reload();
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -132,12 +144,6 @@ export default function AdminVehicles() {
           </select>
         </label>
 
-        {msg.text && (
-          <p className={`text-sm sm:col-span-2 lg:col-span-4 ${msg.type === "error" ? "text-terracotta" : "text-primary"}`}>
-            {msg.text}
-          </p>
-        )}
-
         <div className="flex gap-3 sm:col-span-2 lg:col-span-4">
           <button disabled={busy} className="btn-gold rounded-full px-6 py-2.5 text-sm font-semibold disabled:opacity-50">
             {busy ? "Saving…" : editingId ? "Update vehicle" : "Add vehicle"}
@@ -185,7 +191,7 @@ export default function AdminVehicles() {
                   <td><StatusBadge value={v.status} /></td>
                   <td className="space-x-3 whitespace-nowrap pr-5 text-right text-xs font-semibold">
                     <button onClick={() => startEdit(v)} className="text-primary underline">Edit</button>
-                    <button onClick={() => remove(v)} className="text-terracotta underline">Delete</button>
+                    <button onClick={() => setDeleteTarget(v)} className="text-terracotta underline">Delete</button>
                   </td>
                 </tr>
               ))}
@@ -193,6 +199,17 @@ export default function AdminVehicles() {
           </table>
         )}
       </div>
+
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        tone="danger"
+        title="Delete fleet vehicle?"
+        description={deleteTarget ? `Remove "${deleteTarget.name}" (${deleteTarget.registration_number}) from your transport fleet?` : ""}
+        confirmLabel="Delete vehicle"
+        busy={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </Container>
   );
 }
