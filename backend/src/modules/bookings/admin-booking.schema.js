@@ -24,6 +24,7 @@ const statusBody = z.object({
 const noteBody = z.object({
   note: z.string().trim().min(1).max(5000),
   visibility: z.enum(["internal", "customer_visible"]).default("internal"),
+  send_email: z.boolean().optional().default(false),
 }).strict();
 
 module.exports = { listQuery, statusBody, noteBody };

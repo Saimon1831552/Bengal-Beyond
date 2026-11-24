@@ -66,13 +66,28 @@ export default function AdminBookingDetail({ id }) {
     applyStatus(status);
   };
 
+  const sendNote = (sendEmail = false) => {
+    if (!note.trim() || busy) return;
+    const effectiveVisibility = sendEmail ? "customer_visible" : visibility;
+    run(
+      sendEmail ? "note-email" : "note",
+      () =>
+        api.post(`/admin/bookings/${b.id}/notes`, {
+          note: note.trim(),
+          visibility: effectiveVisibility,
+          send_email: sendEmail,
+        }),
+      sendEmail
+        ? "Message sent to customer's email and saved in-app."
+        : effectiveVisibility === "customer_visible"
+          ? "Message sent in-app to customer."
+          : "Internal note added."
+    ).then(() => setNote(""));
+  };
+
   const addNote = (e) => {
     e.preventDefault();
-    run(
-      "note",
-      () => api.post(`/admin/bookings/${b.id}/notes`, { note: note.trim(), visibility }),
-      visibility === "customer_visible" ? "Message sent in-app to customer." : "Internal note added."
-    ).then(() => setNote(""));
+    sendNote(false);
   };
 
   const actions = NEXT[b.booking_status] || [];
@@ -151,7 +166,7 @@ export default function AdminBookingDetail({ id }) {
               onChange={(e) => setNote(e.target.value)}
               maxLength={1000}
               rows={3}
-              placeholder={visibility === "customer_visible" ? "Reply to customer inside their booking thread (in-app only, no email)…" : "Internal staff note (hidden from customer)…"}
+              placeholder={visibility === "customer_visible" ? "Write a message to customer (send in-app or via email)…" : "Internal staff note (hidden from customer)…"}
               className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm outline-none focus:border-accent"
             />
             <div className="flex flex-wrap items-center gap-3">
@@ -159,8 +174,20 @@ export default function AdminBookingDetail({ id }) {
                 <option value="customer_visible">Customer visible (In-app chat)</option>
                 <option value="internal">Internal note only</option>
               </select>
-              <button disabled={!note.trim() || busy === "note"} className="rounded-full border border-primary px-5 py-2 text-sm font-semibold text-primary disabled:opacity-40">
+              <button
+                type="submit"
+                disabled={!note.trim() || Boolean(busy)}
+                className="rounded-full border border-primary px-5 py-2 text-sm font-semibold text-primary disabled:opacity-40"
+              >
                 {busy === "note" ? "Saving…" : visibility === "customer_visible" ? "Send in-app message" : "Save internal note"}
+              </button>
+              <button
+                type="button"
+                onClick={() => sendNote(true)}
+                disabled={!note.trim() || Boolean(busy)}
+                className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white disabled:opacity-40"
+              >
+                {busy === "note-email" ? "Sending email…" : "Send message in email"}
               </button>
             </div>
           </form>
@@ -189,7 +216,7 @@ export default function AdminBookingDetail({ id }) {
 
         <section className={box}>
           <h2 className="text-lg text-primary">Tour Conversation &amp; Notes</h2>
-          <p className="mt-1 text-xs text-muted">Customer-visible messages appear inside the customer&apos;s booking page (in-app only, no email sent).</p>
+          <p className="mt-1 text-xs text-muted">Customer-visible messages appear inside the customer&apos;s booking page.</p>
           {b.notes.length ? (
             <div className="mt-3 space-y-3">
               {b.notes.map((n) => {
@@ -211,7 +238,7 @@ export default function AdminBookingDetail({ id }) {
                       </span>
                       <span>
                         {formatDateTime(n.created_at)} ·{" "}
-                        {isCustomer ? "Customer message" : n.visibility === "internal" ? "Internal note" : "In-app to customer"}
+                        {isCustomer ? "Customer message" : n.visibility === "internal" ? "Internal note" : "Customer visible"}
                       </span>
                     </div>
                     <p className="mt-1.5 whitespace-pre-wrap text-primary">{n.note}</p>

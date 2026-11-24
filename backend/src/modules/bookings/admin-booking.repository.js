@@ -134,18 +134,27 @@ async function updateStatus(id, nextStatus, adminId, note, { isSuperAdmin = fals
   });
 }
 
-async function addNote(id, adminId, note, visibility) {
-  const [[booking]] = await pool.execute("SELECT id FROM bookings WHERE id = ?", [id]);
-  if (!booking) return null;
-  const [result] = await pool.execute(
-    "INSERT INTO booking_notes (booking_id, sender_type, admin_user_id, sender_user_id, note, visibility) VALUES (?, 'staff', ?, ?, ?, ?)",
-    [id, adminId, adminId, note, visibility]
-  );
-  const [[created]] = await pool.execute(
-    "SELECT id, booking_id, sender_type, admin_user_id, sender_user_id, note, visibility, created_at FROM booking_notes WHERE id = ?",
-    [result.insertId]
-  );
-  return created;
+async function addNote(id, adminId, note, visibility, { sendEmail = false } = {}) {
+  return withTransaction(async (conn) => {
+    const [[booking]] = await conn.execute("SELECT id FROM bookings WHERE id = ?", [id]);
+    if (!booking) return null;
+
+    const effectiveVisibility = sendEmail ? "customer_visible" : visibility;
+    const [result] = await conn.execute(
+      "INSERT INTO booking_notes (booking_id, sender_type, admin_user_id, sender_user_id, note, visibility) VALUES (?, 'staff', ?, ?, ?, ?)",
+      [id, adminId, adminId, note, effectiveVisibility]
+    );
+
+    if (sendEmail) {
+      await queueBookingEmail(conn, id, "booking_message", { message: note }, `:note_${result.insertId}`);
+    }
+
+    const [[created]] = await conn.execute(
+      "SELECT id, booking_id, sender_type, admin_user_id, sender_user_id, note, visibility, created_at FROM booking_notes WHERE id = ?",
+      [result.insertId]
+    );
+    return { ...created, emailed: sendEmail };
+  });
 }
 
 async function summary() {

@@ -38,13 +38,17 @@ async function changeStatus(id, body, user) {
   if (result.paymentRequired) throw new AppError(409, "PAYMENT_REQUIRED", "Booking cannot be confirmed until payment is paid or not_required (Super Admin override required)", { payment_status: result.payment_status });
   return result;
 }
+
 async function note(id, body, user) {
   const adminId = user?.id || user?.userId;
   if (!adminId) throw new AppError(401, "INVALID_SESSION", "Authenticated user id is missing");
-  const created = await repository.addNote(id, adminId, body.note, body.visibility);
+  const created = await repository.addNote(id, adminId, body.note, body.visibility, {
+    sendEmail: Boolean(body.send_email),
+  });
   if (!created) throw new AppError(404, "BOOKING_NOT_FOUND", "Booking not found");
   return created;
 }
+
 async function summary() {
   return repository.summary();
 }
