@@ -45,6 +45,17 @@ async function getBooking(req, res) {
   } catch (error) { return sendError(res, error); }
 }
 
+async function addMessage(req, res) {
+  const userId = customerId(req, res);
+  if (!userId) return;
+  const bookingId = positiveId(req.params.bookingId);
+  if (!bookingId) return res.status(400).json({ success: false, message: "Invalid booking ID." });
+  try {
+    const data = await service.addMessage(userId, bookingId, req.body || {});
+    return res.status(201).json({ success: true, data });
+  } catch (error) { return sendError(res, error); }
+}
+
 async function replaceTravelers(req, res) {
   const userId = customerId(req, res);
   if (!userId) return;
@@ -78,4 +89,4 @@ async function requestCancellation(req, res) {
   } catch (error) { return sendError(res, error); }
 }
 
-module.exports = { listBookings, getBooking, replaceTravelers, updateSpecialRequests, requestCancellation };
+module.exports = { listBookings, getBooking, replaceTravelers, updateSpecialRequests, requestCancellation, addMessage };

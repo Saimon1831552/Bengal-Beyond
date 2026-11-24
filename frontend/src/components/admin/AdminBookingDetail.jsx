@@ -28,7 +28,7 @@ export default function AdminBookingDetail({ id }) {
   const toast = useToast();
   const { data: b, error, loading, reload } = useFetch(`/admin/bookings/${encodeURIComponent(id)}`);
   const [note, setNote] = useState("");
-  const [visibility, setVisibility] = useState("internal");
+  const [visibility, setVisibility] = useState("customer_visible");
   const [busy, setBusy] = useState("");
   const [confirmStatus, setConfirmStatus] = useState(null);
 
@@ -68,10 +68,18 @@ export default function AdminBookingDetail({ id }) {
 
   const addNote = (e) => {
     e.preventDefault();
-    run("note", () => api.post(`/admin/bookings/${b.id}/notes`, { note: note.trim(), visibility }), "Note added.").then(() => setNote(""));
+    run(
+      "note",
+      () => api.post(`/admin/bookings/${b.id}/notes`, { note: note.trim(), visibility }),
+      visibility === "customer_visible" ? "Message sent in-app to customer." : "Internal note added."
+    ).then(() => setNote(""));
   };
 
   const actions = NEXT[b.booking_status] || [];
+  const totalAmount = Number(b.total_amount || 0);
+  const paidAmount = Number(b.paid_amount || 0);
+  const remainingAmount = Math.max(0, Number((totalAmount - paidAmount).toFixed(2)));
+
   return (
     <Container as="main" className="space-y-6 py-8">
       <Link href="/admin/bookings" className="text-sm text-accent link-underline">← All bookings</Link>
@@ -92,6 +100,14 @@ export default function AdminBookingDetail({ id }) {
             <div className="flex justify-between"><span>Subtotal</span><span>{money(b.subtotal, b.currency_code)}</span></div>
             {Number(b.discount_amount) > 0 && <div className="flex justify-between text-accent"><span>Discount</span><span>−{money(b.discount_amount, b.currency_code)}</span></div>}
             <div className="flex justify-between border-t border-border pt-2 font-semibold text-primary"><span>Total</span><span>{money(b.total_amount, b.currency_code)}</span></div>
+            {paidAmount > 0 && (
+              <>
+                <div className="flex justify-between text-primary"><span>Paid</span><span>{money(paidAmount, b.currency_code)}</span></div>
+                {remainingAmount > 0 && (
+                  <div className="flex justify-between font-medium text-terracotta"><span>Remaining due</span><span>{money(remainingAmount, b.currency_code)}</span></div>
+                )}
+              </>
+            )}
           </div>
         </section>
       </div>
@@ -123,18 +139,29 @@ export default function AdminBookingDetail({ id }) {
 
       {manage && (
         <section className="rounded-3xl border border-gold/50 bg-gold/10 p-6">
-          <h2 className="text-lg text-primary">Actions</h2>
-          {b.booking_status === "pending_review" && b.payment_status === "paid" && (
-            <p className="mt-2 text-sm text-primary-dark">This booking is paid and waiting for your decision.</p>
+          <h2 className="text-lg text-primary">Actions &amp; In-App Message</h2>
+          {b.booking_status !== "confirmed" && !["paid", "not_required"].includes(b.payment_status) && (
+            <p className="mt-2 text-xs text-muted">
+              Payment status is <strong>{titleCase(b.payment_status)}</strong> (Paid: {money(paidAmount, b.currency_code)} / {money(totalAmount, b.currency_code)}). Super Admin can confirm this booking without prior payment.
+            </p>
           )}
           <form onSubmit={addNote} className="mt-4 space-y-3">
-            <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} rows={3} placeholder="Note (attached to a status change, or saved on its own)"
-              className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm outline-none focus:border-accent" />
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              maxLength={1000}
+              rows={3}
+              placeholder={visibility === "customer_visible" ? "Reply to customer inside their booking thread (in-app only, no email)…" : "Internal staff note (hidden from customer)…"}
+              className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm outline-none focus:border-accent"
+            />
             <div className="flex flex-wrap items-center gap-3">
-              <select value={visibility} onChange={(e) => setVisibility(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" aria-label="Note visibility">
-                <option value="internal">Internal</option><option value="customer_visible">Customer visible</option>
+              <select value={visibility} onChange={(e) => setVisibility(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" aria-label="Message visibility">
+                <option value="customer_visible">Customer visible (In-app chat)</option>
+                <option value="internal">Internal note only</option>
               </select>
-              <button disabled={!note.trim() || busy === "note"} className="rounded-full border border-primary px-5 py-2 text-sm font-semibold text-primary disabled:opacity-40">Save note only</button>
+              <button disabled={!note.trim() || busy === "note"} className="rounded-full border border-primary px-5 py-2 text-sm font-semibold text-primary disabled:opacity-40">
+                {busy === "note" ? "Saving…" : visibility === "customer_visible" ? "Send in-app message" : "Save internal note"}
+              </button>
             </div>
           </form>
           {actions.length > 0 && (
@@ -159,13 +186,40 @@ export default function AdminBookingDetail({ id }) {
             ))}
           </ul>
         </section>
+
         <section className={box}>
-          <h2 className="text-lg text-primary">Notes</h2>
+          <h2 className="text-lg text-primary">Tour Conversation &amp; Notes</h2>
+          <p className="mt-1 text-xs text-muted">Customer-visible messages appear inside the customer&apos;s booking page (in-app only, no email sent).</p>
           {b.notes.length ? (
-            <ul className="mt-2 space-y-2 text-sm">
-              {b.notes.map((n) => <li key={n.id}><span className="text-muted">{formatDateTime(n.created_at)} · {n.visibility === "internal" ? "Internal" : "Customer visible"}</span><br />{n.note}</li>)}
-            </ul>
-          ) : <p className="mt-2 text-sm text-muted">No notes.</p>}
+            <div className="mt-3 space-y-3">
+              {b.notes.map((n) => {
+                const isCustomer = n.sender_type === "customer";
+                return (
+                  <div
+                    key={n.id}
+                    className={`rounded-2xl p-3.5 text-sm ${
+                      isCustomer
+                        ? "border border-accent/40 bg-accent/10"
+                        : n.visibility === "internal"
+                          ? "border border-border bg-background/70"
+                          : "border border-primary/20 bg-primary/5"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+                      <span className="font-semibold text-primary">
+                        {isCustomer ? `Customer (${n.sender_name || b.customer_name})` : (n.sender_name || "Admin")}
+                      </span>
+                      <span>
+                        {formatDateTime(n.created_at)} ·{" "}
+                        {isCustomer ? "Customer message" : n.visibility === "internal" ? "Internal note" : "In-app to customer"}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 whitespace-pre-wrap text-primary">{n.note}</p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : <p className="mt-2 text-sm text-muted">No messages or notes yet.</p>}
         </section>
       </div>
 

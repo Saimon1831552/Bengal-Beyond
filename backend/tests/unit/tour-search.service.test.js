@@ -28,8 +28,7 @@ test("tour search applies departure filters to one future departure", async (t) 
   assert.match(countQuery.sql, /d\.starts_at >= UTC_TIMESTAMP\(\)/);
   assert.match(countQuery.sql, /d\.starts_at >= \?/);
   assert.match(countQuery.sql, /d\.starts_at < DATE_ADD\(\?, INTERVAL 1 DAY\)/);
-  assert.match(countQuery.sql, /\(d\.seat_capacity - d\.seats_reserved\) >= \?/);
-  assert.match(countQuery.sql, /GREATEST\(/);
+assert.match(countQuery.sql, /\(CAST\(d\.seat_capacity AS SIGNED\) - CAST\(d\.seats_reserved AS SIGNED\)\) >= \?/);  assert.match(countQuery.sql, /GREATEST\(/);
   assert.equal((countQuery.sql.match(/EXISTS \(SELECT 1 FROM tour_departures d WHERE/g) || []).length, 1);
   assert.deepEqual(countQuery.params, [
     "2026-12-01 00:00:00",

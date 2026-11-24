@@ -160,14 +160,22 @@ test("plain errors with valid status codes preserve their response", () => {
 });
 
 test("real database errors map to safe AppErrors", async () => {
+  const conn = await pool.getConnection();
   const run = async (sql) => {
-    try { await pool.query(sql); } catch (e) { return mapKnownError(e); }
+    try { await conn.query(sql); } catch (e) { return mapKnownError(e); }
     return null;
   };
 
-  const check = await run("UPDATE tour_departures SET seats_reserved = 999 WHERE id = 1");
-  assert.equal(check.code, "CONSTRAINT_VIOLATION");
-  assert.equal(check.statusCode, 422);
+  try {
+    await conn.query("CREATE TEMPORARY TABLE _chk_test (x INT CHECK (x > 0))");
+    const check = await run("INSERT INTO _chk_test VALUES (-1)");
+    assert.equal(check.code, "CONSTRAINT_VIOLATION");
+    assert.equal(check.statusCode, 422);
+    assert.ok(!/UPDATE|INSERT/i.test(JSON.stringify(check)), "no SQL text leaks");
+  } finally {
+    await conn.query("DROP TEMPORARY TABLE IF EXISTS _chk_test");
+    conn.release();
+  }
 
   const dup = await run("INSERT INTO roles (role_key, name) VALUES ('admin', 'Dup')");
   assert.equal(dup.code, "DUPLICATE_ENTRY");
@@ -176,8 +184,6 @@ test("real database errors map to safe AppErrors", async () => {
   const fk = await run("INSERT INTO tour_addons (tour_id, name, price) VALUES (99999, 'x', 1)");
   assert.equal(fk.code, "INVALID_REFERENCE");
   assert.equal(fk.statusCode, 400);
-
-  assert.ok(!/UPDATE|INSERT/i.test(JSON.stringify(check)), "no SQL text leaks");
 });
 
 test("pagination helpers", () => {

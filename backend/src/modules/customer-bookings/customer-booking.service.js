@@ -74,11 +74,39 @@ async function getBooking(userId, bookingId) {
     [bookingId]
   );
   const [notes] = await pool.execute(
-    `SELECT id, note, created_at FROM booking_notes
-      WHERE booking_id = ? AND visibility = 'customer_visible' ORDER BY id DESC`,
+    `SELECT bn.id, bn.sender_type, bn.note, bn.created_at,
+            COALESCE(u.full_name, CASE WHEN bn.sender_type = 'customer' THEN 'You' ELSE 'Bengal Beyond Team' END) AS sender_name
+       FROM booking_notes bn
+       LEFT JOIN users u ON u.id = COALESCE(bn.sender_user_id, bn.admin_user_id)
+      WHERE bn.booking_id = ? AND bn.visibility = 'customer_visible'
+      ORDER BY bn.created_at ASC, bn.id ASC`,
     [bookingId]
   );
   return { booking, items, travelers, active_seat_holds: holds, change_requests, notes };
+}
+
+async function addMessage(userId, bookingId, body) {
+  const message = typeof body.message === "string" ? body.message.trim() : "";
+  if (!message || message.length > 5000) {
+    throw httpError(400, "Message is required and must be 5000 characters or fewer.");
+  }
+  return withTransaction(async (conn) => {
+    await ownedBooking(conn, userId, bookingId, true);
+    const [result] = await conn.execute(
+      `INSERT INTO booking_notes (booking_id, sender_type, admin_user_id, sender_user_id, note, visibility)
+       VALUES (?, 'customer', NULL, ?, ?, 'customer_visible')`,
+      [bookingId, userId, message]
+    );
+    const [[created]] = await conn.execute(
+      `SELECT bn.id, bn.booking_id, bn.sender_type, bn.note, bn.created_at,
+              COALESCE(u.full_name, 'You') AS sender_name
+         FROM booking_notes bn
+         LEFT JOIN users u ON u.id = bn.sender_user_id
+        WHERE bn.id = ?`,
+      [result.insertId]
+    );
+    return created;
+  });
 }
 
 async function replaceTravelers(userId, bookingId, body) {
@@ -168,5 +196,5 @@ async function requestCancellation(userId, bookingId, body) {
 }
 
 module.exports = {
-  listBookings, getBooking, replaceTravelers, updateSpecialRequests, requestCancellation,
+  listBookings, getBooking, replaceTravelers, updateSpecialRequests, requestCancellation, addMessage,
 };

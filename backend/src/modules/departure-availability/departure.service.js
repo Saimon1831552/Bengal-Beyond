@@ -4,19 +4,75 @@ const AppError = require("../../utils/appError");
 const conflict = (msg) => { throw AppError.conflict(msg); };
 const bad = (msg) => { throw AppError.badRequest(msg, "VALIDATION_ERROR"); };
 
-async function listByTour(tourId, { availableOnly = false } = {}) {
-  const [tours] = await pool.execute("SELECT id FROM tours WHERE id = ? AND status = 'published' AND deleted_at IS NULL", [tourId]);
-  if (!tours.length) throw AppError.notFound("Tour not found");
-  const conditions = ["tour_id = ?", "status IN ('scheduled', 'sold_out')"];
-  if (availableOnly) conditions.push("seat_capacity > seats_reserved");
-  const [rows] = await pool.execute(
-    `SELECT id, tour_id, starts_at, ends_at, seat_capacity, seats_reserved,
-      GREATEST(CAST(seat_capacity AS SIGNED) - CAST(seats_reserved AS SIGNED), 0) AS seats_available,
-      price_override, status
-     FROM tour_departures WHERE ${conditions.join(" AND ")} ORDER BY starts_at ASC`,
+async function listForTour(tourId, { from, to, availableOnly = false } = {}) {
+  const [tours] = await pool.execute(
+    "SELECT id FROM tours WHERE id = ? AND status = 'published' AND deleted_at IS NULL",
     [tourId]
   );
+  if (!tours.length) throw AppError.notFound("Tour not found");
+
+  const conditions = ["d.tour_id = ?", "d.status IN ('scheduled', 'sold_out')"];
+  const params = [tourId];
+
+  if (from) {
+    conditions.push("d.starts_at >= ?");
+    params.push(`${from} 00:00:00`);
+  }
+  if (to) {
+    conditions.push("d.starts_at <= ?");
+    params.push(`${to} 23:59:59`);
+  }
+
+  const having = availableOnly ? "HAVING seats_available > 0" : "";
+
+  const [rows] = await pool.execute(
+    `SELECT d.id, d.tour_id, d.starts_at, d.ends_at, d.seat_capacity, d.seats_reserved,
+            COALESCE(h.active_held, 0) AS seats_held,
+            GREATEST(
+              CAST(d.seat_capacity AS SIGNED) - CAST(d.seats_reserved AS SIGNED) - COALESCE(h.active_held, 0),
+              0
+            ) AS seats_available,
+            d.price_override, d.status
+       FROM tour_departures d
+       LEFT JOIN (
+         SELECT departure_id, SUM(quantity) AS active_held
+           FROM seat_holds
+          WHERE hold_status = 'active' AND expires_at > UTC_TIMESTAMP()
+          GROUP BY departure_id
+       ) h ON h.departure_id = d.id
+      WHERE ${conditions.join(" AND ")}
+      ${having}
+      ORDER BY d.starts_at ASC`,
+    params
+  );
   return rows;
+}
+
+const listByTour = listForTour;
+
+async function availability(id) {
+  const [rows] = await pool.execute(
+    `SELECT d.id, d.tour_id, d.starts_at, d.ends_at, d.seat_capacity, d.seats_reserved,
+            COALESCE(h.active_held, 0) AS seats_held,
+            GREATEST(
+              CAST(d.seat_capacity AS SIGNED) - CAST(d.seats_reserved AS SIGNED) - COALESCE(h.active_held, 0),
+              0
+            ) AS seats_available,
+            d.price_override, d.status
+       FROM tour_departures d
+       JOIN tours t ON t.id = d.tour_id AND t.status = 'published' AND t.deleted_at IS NULL
+       LEFT JOIN (
+         SELECT departure_id, SUM(quantity) AS active_held
+           FROM seat_holds
+          WHERE hold_status = 'active' AND expires_at > UTC_TIMESTAMP()
+          GROUP BY departure_id
+       ) h ON h.departure_id = d.id
+      WHERE d.id = ?
+      LIMIT 1`,
+    [id]
+  );
+  if (!rows.length) throw AppError.notFound("Departure not found");
+  return rows[0];
 }
 
 async function create({ tour_id, starts_at, ends_at, seat_capacity, price_override, status = "scheduled" }) {
@@ -82,4 +138,4 @@ async function listCalendar({ from, to, tourId } = {}) {
   return rows;
 }
 
-module.exports = { listByTour, create, update, remove, listCalendar };
+module.exports = { listByTour, listForTour, availability, create, update, remove, listCalendar };

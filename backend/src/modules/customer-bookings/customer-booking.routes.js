@@ -8,5 +8,6 @@ router.get("/bookings/:bookingId", controller.getBooking);
 router.put("/bookings/:bookingId/travelers", controller.replaceTravelers);
 router.patch("/bookings/:bookingId/special-requests", controller.updateSpecialRequests);
 router.post("/bookings/:bookingId/cancellation-request", controller.requestCancellation);
+router.post("/bookings/:bookingId/messages", controller.addMessage);
 
 module.exports = router;

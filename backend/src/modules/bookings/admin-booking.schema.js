@@ -1,7 +1,7 @@
 const { z } = require("zod");
 
 const statuses = ["pending_review", "awaiting_payment", "confirmed", "rejected", "cancellation_requested", "cancelled", "completed", "expired"];
-const paymentStatuses = ["not_required", "unpaid", "pending", "paid", "partially_refunded", "refunded", "failed"];
+const paymentStatuses = ["not_required", "unpaid", "pending", "partially_paid", "paid", "partially_refunded", "refunded", "failed"];
 
 const listQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),

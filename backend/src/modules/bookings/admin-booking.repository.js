@@ -4,7 +4,7 @@ const { queueBookingEmail } = require("../notifications/booking-events");
 
 const LIST_SELECT = `SELECT b.id, b.booking_reference, b.booking_status, b.payment_status,
     b.customer_name, b.customer_email, b.customer_phone, b.currency_code,
-    b.subtotal, b.discount_amount, b.total_amount, b.created_at,
+    b.subtotal, b.discount_amount, b.total_amount, b.paid_amount, b.created_at,
     (b.user_id IS NULL) AS is_guest,
     (SELECT COALESCE(SUM(bi.quantity), 0) FROM booking_items bi WHERE bi.booking_id = b.id) AS travelers,
     (SELECT JSON_UNQUOTE(JSON_EXTRACT(bi.tour_snapshot, '$.title')) FROM booking_items bi
@@ -31,7 +31,7 @@ async function list(filters) {
   const order = filters.order === "asc" ? "ASC" : "DESC";
   const offset = (filters.page - 1) * filters.limit;
   const [rows] = await pool.execute(
-    `SELECT b.id, b.booking_reference, b.booking_status, b.payment_status, b.customer_name, b.customer_email, b.customer_phone, b.currency_code, b.total_amount, b.created_at, b.updated_at,
+    `SELECT b.id, b.booking_reference, b.booking_status, b.payment_status, b.customer_name, b.customer_email, b.customer_phone, b.currency_code, b.total_amount, b.paid_amount, b.created_at, b.updated_at,
       (SELECT COUNT(*) FROM booking_items bi WHERE bi.booking_id = b.id) AS item_count,
       (SELECT COALESCE(SUM(bi.quantity), 0) FROM booking_items bi WHERE bi.booking_id = b.id) AS traveler_count
      FROM bookings b ${clause} ORDER BY ${sort} ${order}, b.id ${order} LIMIT :limit OFFSET :offset`,
@@ -50,11 +50,20 @@ async function findById(id) {
   const [travelers] = await pool.execute("SELECT id, traveler_name, traveler_type, nationality, created_at FROM booking_travelers WHERE booking_id = ? ORDER BY id", [id]);
   const [payments] = await pool.execute("SELECT id, provider, provider_payment_id, amount, currency_code, status, verified_at, created_at, updated_at FROM payments WHERE booking_id = ? ORDER BY id DESC", [id]);
   const [history] = await pool.execute("SELECT id, previous_status, new_status, changed_by_user_id, note, created_at FROM booking_status_history WHERE booking_id = ? ORDER BY id DESC", [id]);
-  const [notes] = await pool.execute("SELECT id, admin_user_id, note, visibility, created_at FROM booking_notes WHERE booking_id = ? ORDER BY id DESC", [id]);
+  const [notes] = await pool.execute(
+    `SELECT bn.id, bn.sender_type, bn.admin_user_id, bn.sender_user_id, bn.note, bn.visibility, bn.created_at,
+            COALESCE(u.full_name, CASE WHEN bn.sender_type = 'customer' THEN b.customer_name ELSE 'Admin' END) AS sender_name
+       FROM booking_notes bn
+       JOIN bookings b ON b.id = bn.booking_id
+       LEFT JOIN users u ON u.id = COALESCE(bn.sender_user_id, bn.admin_user_id)
+      WHERE bn.booking_id = ?
+      ORDER BY bn.created_at ASC, bn.id ASC`,
+    [id]
+  );
   return { ...booking, items, travelers, payments, status_history: history, notes };
 }
 
-async function updateStatus(id, nextStatus, adminId, note) {
+async function updateStatus(id, nextStatus, adminId, note, { isSuperAdmin = false } = {}) {
   return withTransaction(async (conn) => {
     const [[booking]] = await conn.execute("SELECT id, booking_status, payment_status FROM bookings WHERE id = ? FOR UPDATE", [id]);
     if (!booking) return { notFound: true };
@@ -67,17 +76,39 @@ async function updateStatus(id, nextStatus, adminId, note) {
     };
     if (booking.booking_status === nextStatus) return { unchanged: true, status: nextStatus };
     if (!(allowed[booking.booking_status] || []).includes(nextStatus)) return { invalidTransition: true, from: booking.booking_status, to: nextStatus };
-    if (nextStatus === "confirmed" && booking.payment_status !== "paid" && booking.payment_status !== "not_required") {
+
+    const paymentSettled = ["paid", "partially_paid", "not_required"].includes(booking.payment_status);
+    if (nextStatus === "confirmed" && !paymentSettled && !isSuperAdmin) {
       return { paymentRequired: true, payment_status: booking.payment_status };
     }
     if (nextStatus === "completed" && booking.booking_status !== "confirmed") return { invalidTransition: true, from: booking.booking_status, to: nextStatus };
+
+    const overrideApplied = nextStatus === "confirmed" && !paymentSettled && isSuperAdmin;
+    const historyNote = overrideApplied
+      ? `${note ? `${note} — ` : ""}[Super Admin override: confirmed without payment]`
+      : (note || null);
+
     const [result] = await conn.execute(
       `UPDATE bookings SET booking_status = ?, confirmed_at = CASE WHEN ? = 'confirmed' THEN UTC_TIMESTAMP() ELSE confirmed_at END,
        cancelled_at = CASE WHEN ? = 'cancelled' THEN UTC_TIMESTAMP() ELSE cancelled_at END WHERE id = ?`,
       [nextStatus, nextStatus, nextStatus, id]);
     await conn.execute(
       "INSERT INTO booking_status_history (booking_id, previous_status, new_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)",
-      [id, booking.booking_status, nextStatus, adminId || null, note || null]);
+      [id, booking.booking_status, nextStatus, adminId || null, historyNote]);
+
+    if (nextStatus === "confirmed") {
+      const [[conv]] = await conn.execute(
+        "SELECT COUNT(*) AS c FROM seat_holds WHERE booking_id = ? AND hold_status = 'converted'", [id]);
+      if (Number(conv.c) === 0) {
+        await conn.execute(
+          `UPDATE tour_departures d JOIN booking_items bi ON bi.departure_id = d.id
+              SET d.seats_reserved = d.seats_reserved + bi.quantity
+            WHERE bi.booking_id = ?`, [id]);
+        await conn.execute(
+          "UPDATE seat_holds SET hold_status = 'converted' WHERE booking_id = ? AND hold_status = 'active'", [id]);
+      }
+    }
+
     if (["cancelled", "rejected", "expired"].includes(nextStatus)) {
       const [[conv]] = await conn.execute(
         "SELECT COUNT(*) AS c FROM seat_holds WHERE booking_id = ? AND hold_status = 'converted'", [id]);
@@ -97,15 +128,23 @@ async function updateStatus(id, nextStatus, adminId, note) {
       rejected: "booking_rejected",
     }[nextStatus];
     if (mail) await queueBookingEmail(conn, id, mail);
-    return { updated: result.affectedRows === 1, status: nextStatus };
+    return overrideApplied
+      ? { updated: result.affectedRows === 1, status: nextStatus, superAdminOverride: true }
+      : { updated: result.affectedRows === 1, status: nextStatus };
   });
 }
 
 async function addNote(id, adminId, note, visibility) {
   const [[booking]] = await pool.execute("SELECT id FROM bookings WHERE id = ?", [id]);
   if (!booking) return null;
-  const [result] = await pool.execute("INSERT INTO booking_notes (booking_id, admin_user_id, note, visibility) VALUES (?, ?, ?, ?)", [id, adminId, note, visibility]);
-  const [[created]] = await pool.execute("SELECT id, booking_id, admin_user_id, note, visibility, created_at FROM booking_notes WHERE id = ?", [result.insertId]);
+  const [result] = await pool.execute(
+    "INSERT INTO booking_notes (booking_id, sender_type, admin_user_id, sender_user_id, note, visibility) VALUES (?, 'staff', ?, ?, ?, ?)",
+    [id, adminId, adminId, note, visibility]
+  );
+  const [[created]] = await pool.execute(
+    "SELECT id, booking_id, sender_type, admin_user_id, sender_user_id, note, visibility, created_at FROM booking_notes WHERE id = ?",
+    [result.insertId]
+  );
   return created;
 }
 

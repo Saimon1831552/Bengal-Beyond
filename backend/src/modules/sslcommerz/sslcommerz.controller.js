@@ -6,7 +6,11 @@ function asyncRoute(fn) {
 }
 
 exports.initiate = asyncRoute(async (req, res) => {
-  const result = await service.initiate(req.user.id, Number(req.params.bookingId), req.body.idempotency_key);
+  const result = await service.initiate(req.user.id, Number(req.params.bookingId), {
+    idempotencyKey: req.body.idempotency_key,
+    paymentOption: req.body.payment_option || 'full',
+    amount: req.body.amount,
+  });
   res.status(201).json({ success: true, data: result });
 });
 
@@ -23,10 +27,13 @@ exports.ipn = asyncRoute(async (req, res) => {
 async function returnToFrontend(req, res, next) {
   try {
     const payload = req.body && Object.keys(req.body).length ? req.body : req.query;
-    if (payload.val_id) await service.validateAndApply(payload);
+    let applied = null;
+    if (payload.val_id) applied = await service.validateAndApply(payload);
     const status = req.path.endsWith('/success') ? 'success' : req.path.endsWith('/cancel') ? 'cancelled' : 'failed';
-    // Redirect parameters are informational only; booking/payment status comes from validation/IPN.
-    res.redirect(303, `${env.FRONTEND_URL.replace(/\/$/, '')}/payment-result?status=${status}`);
+    const qs = new URLSearchParams({ status });
+    if (applied?.booking_id) qs.set('booking_id', String(applied.booking_id));
+    if (payload.tran_id) qs.set('tran_id', String(payload.tran_id));
+    res.redirect(303, `${env.FRONTEND_URL.replace(/\/$/, '')}/payment-result?${qs.toString()}`);
   } catch (error) { next(error); }
 }
 exports.success = asyncRoute(returnToFrontend);
