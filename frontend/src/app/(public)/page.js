@@ -17,8 +17,6 @@ import Blogs from "@/components/landing/Blogs";
 import Heritage from "@/components/landing/Heritage";
 import Gallery from "@/components/landing/Gallery";
 import DepthScene from "@/components/landing/DepthScene";
-import TestimonialsSection from "@/components/public/TestimonialsSection";
-
 
 export const metadata = buildMetadata({
   title: { absolute: `${siteConfig.name} | Bangladesh Tours & Travel Experiences` },
@@ -28,20 +26,40 @@ export const metadata = buildMetadata({
 
 export const revalidate = 3600;
 
-const safe = async (fn) => { try { return await fn(); } catch { return []; } };
+const safe = async (fn, fallback = []) => {
+  try {
+    return await fn();
+  } catch {
+    return fallback;
+  }
+};
 
 export default async function HomePage() {
   const [destinations, tours, posts, gallery, hl] = await Promise.all([
-    safe(getDestinations), safe(getTours), safe(getPosts), getGallery(9), getHighlights(),
+    safe(getDestinations, []),
+    safe(getTours, []),
+    safe(getPosts, []),
+    safe(() => getGallery(9), []),
+    safe(getHighlights, { reviews: [], stats: null }),
   ]);
   const { holiday, short, day } = splitTours(tours);
-  const reviews = hl.reviews.map((r) => ({ id: r.id, name: r.name, place: r.tourTitle, stars: r.rating, text: r.text }));
-  const s = hl.stats;
-  const stats = s ? [
-    { to: s.travellers, label: "Happy travellers" },
-    { to: s.tours, label: "Tours to choose from" },
-    { to: s.reviews, label: "Traveller reviews" },
-  ].filter((x) => x.to > 0).map((x) => ({ ...x, suffix: "" })) : [];
+  const reviews = (hl?.reviews || []).map((r) => ({
+    id: r.id,
+    name: r.name,
+    place: r.tourTitle,
+    stars: r.rating,
+    text: r.text,
+  }));
+  const s = hl?.stats;
+  const stats = s
+    ? [
+        { to: s.travellers, label: "Happy travellers" },
+        { to: s.tours, label: "Tours to choose from" },
+        { to: s.reviews, label: "Traveller reviews" },
+      ]
+        .filter((x) => x.to > 0)
+        .map((x) => ({ ...x, suffix: "" }))
+    : [];
 
   return (
     <main>
@@ -59,8 +77,6 @@ export default async function HomePage() {
       <Blogs posts={blogCards(posts)} />
       <Heritage />
       <Gallery items={gallery} />
-      <TestimonialsSection/>
-     
     </main>
   );
 }

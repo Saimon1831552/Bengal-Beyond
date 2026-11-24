@@ -1,0 +1,4196 @@
+﻿
+
+===== FILE: backend/src/services/mailer.js =====
+const nodemailer = require("nodemailer");
+const env = require("../config/env");
+
+let transporter;
+function getTransporter() {
+  if (transporter) return transporter;
+  if (!env.SMTP_HOST || !env.SMTP_PORT || !env.SMTP_USER || !env.SMTP_PASSWORD) {
+    throw new Error("Email delivery is not configured (SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD).");
+  }
+  transporter = nodemailer.createTransport({
+    host: env.SMTP_HOST,
+    port: env.SMTP_PORT,
+    secure: env.SMTP_PORT === 465, // 465 = implicit TLS
+    requireTLS: env.SMTP_PORT !== 465 && env.SMTP_REQUIRE_TLS, // 587 = STARTTLS, never plaintext
+    auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
+  });
+  return transporter;
+}
+
+async function sendActionEmail({ to, subject, text }) {
+  if (!env.MAIL_FROM) throw new Error("MAIL_FROM must be configured for account emails.");
+  await getTransporter().sendMail({ from: env.MAIL_FROM, to, subject, text });
+}
+
+async function sendMail({ to, subject, text }) {
+  if (!env.MAIL_FROM) throw new Error("MAIL_FROM must be configured.");
+  const info = await getTransporter().sendMail({
+    from: env.MAIL_FROM,
+    to,
+    subject: String(subject || "").replace(/[\r\n]+/g, " ").slice(0, 200),
+    text,
+  });
+  return { messageId: info.messageId };
+}
+
+// Checks host, port, TLS and credentials without sending anything.
+async function verifyConnection() {
+  await getTransporter().verify();
+  return true;
+}
+
+module.exports = { sendActionEmail, sendMail, verifyConnection };
+
+
+===== FILE: backend/src/modules/admin-activity/admin-activity.controller.js =====
+const { sendSuccess } = require("../../utils/response");
+const service = require("./admin-activity.service");
+
+async function listNotifications(req, res) {
+  return sendSuccess(res, await service.listNotifications({
+    userId: req.auth.userId,
+    ...req.validated.query,
+  }));
+}
+
+async function markNotificationRead(req, res) {
+  return sendSuccess(res, await service.markNotificationRead({
+    notificationId: req.validated.params.id,
+    userId: req.auth.userId,
+  }));
+}
+
+async function markAllNotificationsRead(req, res) {
+  return sendSuccess(res, await service.markAllNotificationsRead(req.auth.userId));
+}
+
+async function unreadCount(req, res) {
+  return sendSuccess(res, await service.unreadCount(req.auth.userId));
+}
+
+async function listActivity(req, res) {
+  return sendSuccess(res, await service.listActivity(req.validated.query));
+}
+
+module.exports = {
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  unreadCount,
+  listActivity,
+};
+
+
+===== FILE: backend/src/modules/admin-activity/admin-activity.links.js =====
+const RESOURCE_PATHS = Object.freeze({
+  booking: "bookings",
+  payment: "payments",
+  customer: "customers",
+  user: "customers",
+});
+
+function resourceLink(entityType, entityId) {
+  const path = RESOURCE_PATHS[entityType];
+  if (!path || !/^[1-9]\d*$/.test(String(entityId || ""))) return null;
+
+  return {
+    type: entityType === "user" ? "customer" : entityType,
+    id: String(entityId),
+    href: `/admin/${path}/${entityId}`,
+  };
+}
+
+module.exports = { resourceLink };
+
+
+===== FILE: backend/src/modules/admin-activity/admin-activity.repository.js =====
+const { pool } = require("../../config/db");
+
+async function listNotifications({ userId, page, limit, unreadOnly }) {
+  const conditions = [
+    `(recipient.notification_id IS NOT NULL OR NOT EXISTS (
+       SELECT 1 FROM admin_notification_recipients assigned
+        WHERE assigned.notification_id = notification.id
+     ))`,
+  ];
+  const params = [userId];
+
+  if (unreadOnly) conditions.push("COALESCE(recipient.is_read, 0) = 0");
+  const where = conditions.join(" AND ");
+  const offset = (page - 1) * limit;
+
+  const [[countRows], [notificationRows], [unreadRows]] = await Promise.all([
+    pool.execute(
+      `SELECT COUNT(*) AS total
+         FROM admin_notifications notification
+         LEFT JOIN admin_notification_recipients recipient
+           ON recipient.notification_id = notification.id
+          AND recipient.recipient_user_id = ?
+        WHERE ${where}`,
+      params,
+    ),
+    pool.execute(
+      `SELECT notification.id, notification.event_type, notification.title,
+              notification.message, notification.entity_type, notification.entity_id,
+              notification.created_at, COALESCE(recipient.is_read, 0) AS is_read,
+              recipient.read_at
+         FROM admin_notifications notification
+         LEFT JOIN admin_notification_recipients recipient
+           ON recipient.notification_id = notification.id
+          AND recipient.recipient_user_id = ?
+        WHERE ${where}
+        ORDER BY notification.created_at DESC, notification.id DESC
+        LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    ),
+    pool.execute(
+      `SELECT COUNT(*) AS unread
+         FROM admin_notifications notification
+         LEFT JOIN admin_notification_recipients recipient
+           ON recipient.notification_id = notification.id
+          AND recipient.recipient_user_id = ?
+        WHERE ${where} AND COALESCE(recipient.is_read, 0) = 0`,
+      params,
+    ),
+  ]);
+
+  return {
+    items: notificationRows,
+    total: Number(countRows[0].total),
+    unreadCount: Number(unreadRows[0].unread),
+  };
+}
+
+async function markNotificationRead({ notificationId, userId }) {
+  const [visibleRows] = await pool.execute(
+    `SELECT notification.id,
+            NOT EXISTS (
+              SELECT 1 FROM admin_notification_recipients assigned
+               WHERE assigned.notification_id = notification.id
+            ) AS is_global
+       FROM admin_notifications notification
+      WHERE notification.id = ?
+        AND (
+          NOT EXISTS (
+            SELECT 1 FROM admin_notification_recipients assigned
+             WHERE assigned.notification_id = notification.id
+          )
+          OR EXISTS (
+            SELECT 1 FROM admin_notification_recipients own
+             WHERE own.notification_id = notification.id
+               AND own.recipient_user_id = ?
+          )
+        )
+      LIMIT 1`,
+    [notificationId, userId],
+  );
+  if (!visibleRows.length) return false;
+
+  if (visibleRows[0].is_global) {
+    await createGlobalNotificationRecipients({ userId, notificationId });
+  } else {
+    await pool.execute(
+      `UPDATE admin_notification_recipients
+          SET is_read = 1, read_at = COALESCE(read_at, UTC_TIMESTAMP())
+        WHERE notification_id = ? AND recipient_user_id = ?`,
+      [notificationId, userId],
+    );
+  }
+
+  return true;
+}
+
+async function createGlobalNotificationRecipients({ userId, notificationId = null }) {
+  const idClause = notificationId === null ? "" : "AND notification.id = ?";
+  const params = notificationId === null
+    ? [userId, userId]
+    : [userId, userId, notificationId];
+  await pool.execute(
+    `INSERT INTO admin_notification_recipients
+       (notification_id, recipient_user_id, is_read, read_at)
+     SELECT notification.id, audience.user_id,
+            IF(audience.user_id = ?, 1, 0),
+            IF(audience.user_id = ?, UTC_TIMESTAMP(), NULL)
+       FROM admin_notifications notification
+       JOIN (
+         SELECT DISTINCT user_role.user_id
+           FROM user_roles user_role
+           JOIN role_permissions role_permission ON role_permission.role_id = user_role.role_id
+           JOIN permissions permission ON permission.id = role_permission.permission_id
+           JOIN users active_user ON active_user.id = user_role.user_id
+          WHERE permission.permission_key = 'notifications.read'
+            AND active_user.account_status = 'active'
+       ) audience
+      WHERE NOT EXISTS (
+        SELECT 1 FROM admin_notification_recipients assigned
+         WHERE assigned.notification_id = notification.id
+      )
+      ${idClause}
+     ON DUPLICATE KEY UPDATE
+       is_read = VALUES(is_read),
+       read_at = VALUES(read_at)`,
+    params,
+  );
+}
+
+async function markAllNotificationsRead(userId) {
+  const countBefore = await unreadCount(userId);
+  await createGlobalNotificationRecipients({ userId });
+  const [result] = await pool.execute(
+    `UPDATE admin_notification_recipients
+        SET is_read = 1, read_at = COALESCE(read_at, UTC_TIMESTAMP())
+      WHERE recipient_user_id = ? AND is_read = 0`,
+    [userId],
+  );
+  return Math.max(countBefore, result.affectedRows);
+}
+
+async function unreadCount(userId) {
+  const [rows] = await pool.execute(
+    `SELECT COUNT(*) AS unread
+       FROM admin_notifications notification
+       LEFT JOIN admin_notification_recipients recipient
+         ON recipient.notification_id = notification.id
+        AND recipient.recipient_user_id = ?
+      WHERE COALESCE(recipient.is_read, 0) = 0
+        AND (
+          recipient.notification_id IS NOT NULL
+          OR NOT EXISTS (
+            SELECT 1 FROM admin_notification_recipients assigned
+             WHERE assigned.notification_id = notification.id
+          )
+        )`,
+    [userId],
+  );
+  return Number(rows[0].unread);
+}
+
+async function listActivity({ page, limit, entityType }) {
+  const conditions = [];
+  const params = [];
+  if (entityType) {
+    conditions.push("activity.entity_type = ?");
+    params.push(entityType);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const offset = (page - 1) * limit;
+  const activitySource = `(
+    SELECT CONCAT('audit:', log.id) AS id, log.actor_user_id, log.action,
+           log.entity_type, log.entity_id, log.request_id, log.created_at
+      FROM audit_logs log
+    UNION ALL
+    SELECT CONCAT('booking-status:', history.id) AS id, history.changed_by_user_id AS actor_user_id,
+           CONCAT('booking.status.', history.new_status) AS action,
+           'booking' AS entity_type, history.booking_id AS entity_id,
+           NULL AS request_id, history.created_at
+      FROM booking_status_history history
+    UNION ALL
+    SELECT CONCAT('booking-note:', note.id) AS id, note.admin_user_id AS actor_user_id,
+           'booking.note_added' AS action, 'booking' AS entity_type,
+           note.booking_id AS entity_id, NULL AS request_id, note.created_at
+      FROM booking_notes note
+  ) activity`;
+
+  const [[countRows], [activityRows]] = await Promise.all([
+    pool.execute(`SELECT COUNT(*) AS total FROM ${activitySource} ${where}`, params),
+    pool.execute(
+      `SELECT activity.id, activity.actor_user_id, actor.full_name AS actor_name,
+              activity.action, activity.entity_type, activity.entity_id,
+              activity.request_id, activity.created_at
+         FROM ${activitySource}
+         LEFT JOIN users actor ON actor.id = activity.actor_user_id
+         ${where}
+        ORDER BY activity.created_at DESC, activity.id DESC
+        LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    ),
+  ]);
+
+  return { items: activityRows, total: Number(countRows[0].total) };
+}
+
+module.exports = {
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  unreadCount,
+  listActivity,
+};
+
+
+===== FILE: backend/src/modules/admin-activity/admin-activity.routes.js =====
+const express = require("express");
+const authenticate = require("../../middleware/authenticate");
+const authorize = require("../../middleware/authorize");
+const validate = require("../../middleware/validate");
+const asyncHandler = require("../../utils/asynchandler");
+const {
+  notificationListQuery,
+  activityQuery,
+  idParams,
+} = require("./admin-activity.schema");
+const controller = require("./admin-activity.controller");
+
+const router = express.Router();
+router.use(authenticate);
+
+router.get(
+  "/notifications/unread-count",
+  authorize("notifications.read"),
+  asyncHandler(controller.unreadCount),
+);
+router.get(
+  "/notifications",
+  authorize("notifications.read"),
+  validate({ query: notificationListQuery }),
+  asyncHandler(controller.listNotifications),
+);
+router.patch(
+  "/notifications/read-all",
+  authorize("notifications.read"),
+  asyncHandler(controller.markAllNotificationsRead),
+);
+router.patch(
+  "/notifications/:id/read",
+  authorize("notifications.read"),
+  validate({ params: idParams }),
+  asyncHandler(controller.markNotificationRead),
+);
+router.get(
+  "/activity",
+  authorize("audit.read"),
+  validate({ query: activityQuery }),
+  asyncHandler(controller.listActivity),
+);
+
+module.exports = router;
+
+
+===== FILE: backend/src/modules/admin-activity/admin-activity.schema.js =====
+const { z } = require("zod");
+const { paginationQuery } = require("../../validators/common");
+
+const notificationListQuery = paginationQuery.extend({
+  unreadOnly: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+}).strict();
+
+const activityQuery = paginationQuery.extend({
+  entityType: z.string().trim().min(1).max(80).optional(),
+}).strict();
+
+const idParams = z.object({
+  id: z.coerce.number().int().positive(),
+});
+
+module.exports = { notificationListQuery, activityQuery, idParams };
+
+
+===== FILE: backend/src/modules/admin-activity/admin-activity.service.js =====
+const AppError = require("../../utils/appError");
+const repository = require("./admin-activity.repository");
+const { resourceLink } = require("./admin-activity.links");
+const { paginationMeta } = require("../../utils/pagination");
+
+async function listNotifications({ userId, page, limit, unreadOnly }) {
+  const result = await repository.listNotifications({ userId, page, limit, unreadOnly });
+  return {
+    items: result.items.map((notification) => ({
+      id: notification.id,
+      eventType: notification.event_type,
+      title: notification.title,
+      message: notification.message,
+      isRead: Boolean(notification.is_read),
+      createdAt: notification.created_at,
+      readAt: notification.read_at,
+      resource: resourceLink(notification.entity_type, notification.entity_id),
+    })),
+    unreadCount: result.unreadCount,
+    pagination: paginationMeta({ page, limit, total: result.total }),
+  };
+}
+
+async function markNotificationRead({ notificationId, userId }) {
+  const updated = await repository.markNotificationRead({ notificationId, userId });
+  if (!updated) throw AppError.notFound("Notification not found.", "NOTIFICATION_NOT_FOUND");
+  return { id: notificationId, isRead: true };
+}
+
+async function markAllNotificationsRead(userId) {
+  const updatedCount = await repository.markAllNotificationsRead(userId);
+  return { updatedCount };
+}
+
+async function unreadCount(userId) {
+  return { unreadCount: await repository.unreadCount(userId) };
+}
+
+async function listActivity({ page, limit, entityType }) {
+  const result = await repository.listActivity({ page, limit, entityType });
+  return {
+    items: result.items.map((activity) => ({
+      id: activity.id,
+      action: activity.action,
+      actor: activity.actor_user_id
+        ? { id: activity.actor_user_id, name: activity.actor_name }
+        : null,
+      entityType: activity.entity_type,
+      entityId: activity.entity_id,
+      createdAt: activity.created_at,
+      requestId: activity.request_id,
+      resource: resourceLink(activity.entity_type, activity.entity_id),
+    })),
+    pagination: paginationMeta({ page, limit, total: result.total }),
+  };
+}
+
+module.exports = {
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  unreadCount,
+  listActivity,
+};
+
+
+===== FILE: backend/src/modules/api-docs/api-docs.routes.js =====
+const express = require('express');
+const router = express.Router();
+const spec = require('./openapi');
+
+// JSON spec is public by design; hide/secure it in production if your policy requires.
+router.get('/openapi.json', (req, res) => res.json(spec));
+
+// Lightweight built-in docs page avoids introducing a runtime dependency.
+// Swagger UI can be added later if the project already has an approved static asset policy.
+router.get('/', (req, res) => {
+  res.type('html').send(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bengal Beyond API Docs</title>
+<style>body{font:16px system-ui;max-width:900px;margin:48px auto;padding:0 20px;color:#18212f}a{color:#126b5c}code{background:#f1f5f9;padding:3px 6px;border-radius:4px}.muted{color:#64748b}</style></head>
+<body><h1>Bengal Beyond API</h1><p class="muted">Backend API reference</p>
+<p>OpenAPI specification: <a href="/api/docs/openapi.json"><code>/api/docs/openapi.json</code></a></p>
+<p>Base URL: <code>/api</code></p><h2>Health</h2><ul><li><code>GET /api/health</code> — liveness</li><li><code>GET /api/health/ready</code> — database readiness</li></ul>
+<h2>Customer payments</h2><ul><li><code>GET /api/customer/payments</code></li><li><code>GET /api/customer/payments/:paymentId</code></li><li><code>POST /api/customer/bookings/:bookingId/payments</code></li></ul>
+<h2>Payment webhooks</h2><ul><li><code>POST /api/webhooks/sslcommerz/ipn</code> — gateway callback</li></ul>
+<h2>Admin webhook operations</h2><ul><li><code>GET /api/admin/payment-webhooks/events</code></li><li><code>POST /api/admin/payment-webhooks/events/:eventId/retry</code></li></ul>
+<p class="muted">Only endpoints confirmed in the installed backend modules are documented here. Extend openapi.js as additional routes are installed.</p></body></html>`);
+});
+module.exports = router;
+
+
+===== FILE: backend/src/modules/api-docs/INSTALL_MOUNT.txt =====
+PHASE 5.1 INSTALLATION
+
+1. Copy src/modules/api-docs/ into backend/src/modules/api-docs/.
+2. Copy src/middleware/apiVersion.js into backend/src/middleware/.
+3. Open backend/src/routes/index.js and add:
+   router.use('/docs', require('../modules/api-docs/api-docs.routes'));
+
+4. Open backend/src/app.js. After app.use(requestId) and before app.use('/api', routes),
+   add:
+   const apiVersion = require('./middleware/apiVersion');
+   app.use('/api', apiVersion);
+   IMPORTANT: Your existing app currently mounts routes with app.use('/api', routes).
+   Therefore place the middleware before that mount. Do not add another /api prefix to routes.
+
+5. Restart backend.
+6. Verify:
+   GET http://localhost:5000/api/docs
+   GET http://localhost:5000/api/docs/openapi.json
+   GET http://localhost:5000/api/health
+   GET http://localhost:5000/api/health with header X-API-Version: 1
+   GET http://localhost:5000/api/health with header X-API-Version: 2 (expect 400)
+
+NOTE
+The OpenAPI file documents only endpoints present in the recent Bengal Beyond phase packages. Confirm the route mounts match your installed backend before publishing the documentation. This package does not add Swagger UI dependency or modify database schema.
+
+
+===== FILE: backend/src/modules/api-docs/openapi.js =====
+const openapi = {
+  openapi: '3.0.3',
+  info: {
+    title: 'Bengal Beyond API',
+    version: '1.0.0',
+    description: 'Backend API documentation for Bengal Beyond. Authentication uses the existing bearer-token middleware.'
+  },
+  servers: [{ url: '/api', description: 'Current API base path' }],
+  tags: [
+    { name: 'Health' },
+    { name: 'Authentication' },
+    { name: 'Tours' },
+    { name: 'Bookings' },
+    { name: 'Customer Payments' },
+    { name: 'Payment Webhooks' },
+    { name: 'Admin' }
+  ],
+  components: {
+    securitySchemes: {
+      bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }
+    },
+    schemas: {
+      SuccessEnvelope: {
+        type: 'object', properties: {
+          success: { type: 'boolean', example: true },
+          data: { nullable: true },
+          meta: { type: 'object', nullable: true }
+        }
+      },
+      ErrorEnvelope: {
+        type: 'object', properties: {
+          success: { type: 'boolean', example: false },
+          message: { type: 'string' },
+          requestId: { type: 'string' }
+        }
+      },
+      Pagination: {
+        type: 'object', properties: {
+          page: { type: 'integer', minimum: 1 },
+          limit: { type: 'integer', minimum: 1 },
+          total: { type: 'integer' },
+          totalPages: { type: 'integer' }
+        }
+      }
+    },
+    parameters: {
+      Page: { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
+      Limit: { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } }
+    }
+  },
+  paths: {
+    '/health': {
+      get: {
+        tags: ['Health'], summary: 'Liveness check',
+        responses: { 200: { description: 'API process is running' } }
+      }
+    },
+    '/health/ready': {
+      get: {
+        tags: ['Health'], summary: 'Readiness and database check',
+        responses: { 200: { description: 'API and database are ready' }, 503: { description: 'Database unavailable' } }
+      }
+    },
+    '/webhooks/sslcommerz/ipn': {
+      post: {
+        tags: ['Payment Webhooks'], summary: 'SSLCommerz IPN receiver',
+        description: 'Public gateway callback. The server must validate the transaction with SSLCommerz before changing payment state.',
+        requestBody: { required: true, content: { 'application/x-www-form-urlencoded': { schema: { type: 'object', properties: { val_id: { type: 'string' }, tran_id: { type: 'string' }, status: { type: 'string' } }, required: ['val_id'] } } } },
+        responses: { 200: { description: 'Event accepted' }, 400: { description: 'Invalid callback' }, 502: { description: 'Validation service unavailable' } }
+      }
+    },
+    '/customer/payments': {
+      get: {
+        tags: ['Customer Payments'], summary: 'List current customer payment attempts',
+        security: [{ bearerAuth: [] }],
+        parameters: [{ '$ref': '#/components/parameters/Page' }, { '$ref': '#/components/parameters/Limit' }],
+        responses: { 200: { description: 'Payment list' }, 401: { description: 'Authentication required' } }
+      }
+    },
+    '/customer/payments/{paymentId}': {
+      get: {
+        tags: ['Customer Payments'], summary: 'Get a customer-owned payment',
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: 'paymentId', in: 'path', required: true, schema: { type: 'integer' } }],
+        responses: { 200: { description: 'Payment details' }, 404: { description: 'Not found' } }
+      }
+    },
+    '/customer/bookings/{bookingId}/payments': {
+      post: {
+        tags: ['Customer Payments'], summary: 'Create payment attempt and initiate checkout',
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: 'bookingId', in: 'path', required: true, schema: { type: 'integer' } }],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['idempotency_key'], properties: { idempotency_key: { type: 'string', maxLength: 100 } } } } } },
+        responses: { 201: { description: 'Checkout initiated' }, 409: { description: 'Booking cannot be paid' } }
+      }
+    },
+    '/admin/payment-webhooks/events': {
+      get: {
+        tags: ['Admin'], summary: 'List payment webhook events',
+        security: [{ bearerAuth: [] }],
+        parameters: [{ '$ref': '#/components/parameters/Page' }, { '$ref': '#/components/parameters/Limit' }, { name: 'status', in: 'query', schema: { type: 'string', enum: ['received','processing','processed','failed'] } }],
+        responses: { 200: { description: 'Webhook event list' }, 403: { description: 'Insufficient permissions' } }
+      }
+    },
+    '/admin/payment-webhooks/events/{eventId}/retry': {
+      post: {
+        tags: ['Admin'], summary: 'Retry a failed webhook event',
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: 'eventId', in: 'path', required: true, schema: { type: 'integer' } }],
+        responses: { 200: { description: 'Retry attempted' }, 409: { description: 'Event is not retryable' } }
+      }
+    }
+  }
+};
+module.exports = openapi;
+
+
+===== FILE: backend/src/modules/audit/admin-audit.controller.js =====
+const service = require("./admin-audit.service");
+
+exports.listAuditLogs = async (req, res) => {
+  const result = await service.listAuditLogs(req.query);
+  res.json({ success: true, data: result.items, meta: result.meta });
+};
+
+exports.listSecurityEvents = async (req, res) => {
+  const result = await service.listSecurityEvents(req.query);
+  res.json({ success: true, data: result.items, meta: result.meta });
+};
+
+exports.securitySummary = async (_req, res) => {
+  res.json({ success: true, data: await service.securitySummary() });
+};
+
+exports.getAuditLog = async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) {
+    return res.status(400).json({ success: false, error: { code: "INVALID_ID", message: "id must be a positive integer." } });
+  }
+  const row = await service.getAuditLog(id);
+  if (!row) return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Audit log not found." } });
+  res.json({ success: true, data: row });
+};
+
+
+===== FILE: backend/src/modules/audit/admin-audit.routes.js =====
+const express = require("express");
+const authenticate = require("../../middleware/authenticate");
+const authorize = require("../../middleware/authorize");
+const validate = require("../../middleware/validate");
+const asyncHandler = require("../../utils/asynchandler");
+const controller = require("./admin-audit.controller");
+const { auditQuery, idParams } = require("./admin-audit.schema");
+
+const router = express.Router();
+router.use(authenticate);
+router.use(authorize("audit.read"));
+router.get("/", validate({ query: auditQuery }), asyncHandler(controller.listAuditLogs));
+router.get("/security-events", validate({ query: auditQuery }), asyncHandler(controller.listSecurityEvents));
+router.get("/summary", asyncHandler(controller.securitySummary));
+router.get("/:id", validate({ params: idParams }), asyncHandler(controller.getAuditLog));
+
+module.exports = router;
+
+
+===== FILE: backend/src/modules/audit/admin-audit.schema.js =====
+const { z } = require("zod");
+const { paginationQuery, idParams } = require("../../validators/common");
+
+const validDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
+  message: "Must be a valid date or ISO datetime.",
+});
+
+const auditQuery = paginationQuery.extend({
+  actorId: z.coerce.number().int().positive().optional(),
+  from: validDate.optional(),
+  to: validDate.optional(),
+  action: z.string().trim().min(1).max(120).optional(),
+  entityType: z.string().trim().min(1).max(80).optional(),
+  entityId: z.coerce.number().int().positive().optional(),
+  requestId: z.string().trim().min(1).max(100).optional(),
+  search: z.string().trim().min(1).max(160).optional(),
+}).strict();
+
+module.exports = { auditQuery, idParams };
+
+
+===== FILE: backend/src/modules/audit/admin-audit.service.js =====
+const { pool } = require("../../config/db");
+
+function parseFilters(query = {}) {
+  const page = Math.max(1, Math.min(1000000, Number.parseInt(query.page, 10) || 1));
+  const limit = Math.max(1, Math.min(100, Number.parseInt(query.limit, 10) || 25));
+  const filters = [];
+  const params = [];
+  if (query.actorId !== undefined && query.actorId !== "") {
+    const actorId = Number(query.actorId);
+    if (!Number.isSafeInteger(actorId) || actorId < 1) throw Object.assign(new Error("actorId must be a positive integer."), { status: 400, code: "INVALID_FILTER" });
+    filters.push("a.actor_user_id = ?");
+    params.push(actorId);
+  }
+  if (query.from) {
+    if (!isValidDate(query.from)) throw Object.assign(new Error("from must be a valid date or ISO datetime."), { status: 400, code: "INVALID_FILTER" });
+    filters.push("a.created_at >= ?");
+    params.push(normalizeFrom(query.from));
+  }
+  if (query.to) {
+    if (!isValidDate(query.to)) throw Object.assign(new Error("to must be a valid date or ISO datetime."), { status: 400, code: "INVALID_FILTER" });
+    filters.push("a.created_at <= ?");
+    params.push(normalizeTo(query.to));
+  }
+  if (query.action) {
+    filters.push("a.action LIKE ?");
+    params.push(`%${String(query.action).slice(0, 120)}%`);
+  }
+  if (query.entityType) {
+    filters.push("a.entity_type = ?");
+    params.push(String(query.entityType).slice(0, 80));
+  }
+  if (query.entityId !== undefined && query.entityId !== "") {
+    const entityId = Number(query.entityId);
+    if (!Number.isSafeInteger(entityId) || entityId < 1) throw Object.assign(new Error("entityId must be a positive integer."), { status: 400, code: "INVALID_FILTER" });
+    filters.push("a.entity_id = ?");
+    params.push(entityId);
+  }
+  if (query.requestId) {
+    filters.push("a.request_id = ?");
+    params.push(String(query.requestId).slice(0, 100));
+  }
+  if (query.search) {
+    const search = `%${String(query.search).slice(0, 160)}%`;
+    filters.push("(a.action LIKE ? OR a.entity_type LIKE ? OR CAST(a.entity_id AS CHAR) LIKE ? OR a.request_id LIKE ? OR u.email LIKE ? OR u.full_name LIKE ?)");
+    params.push(search, search, search, search, search, search);
+  }
+  if (query.securityOnly === "true") {
+    filters.push("(a.action REGEXP '(login|logout|auth|password|token|permission|role|suspend|failed|denied|security|rate.?limit|csrf|reset)' OR a.entity_type REGEXP '(auth|session|user|role|permission|security|token|login)')");
+  }
+  return { page, limit, filters, params };
+}
+function isValidDate(value) { return !Number.isNaN(Date.parse(value)); }
+function normalizeFrom(value) { return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value} 00:00:00` : new Date(value).toISOString().slice(0, 19).replace("T", " "); }
+function normalizeTo(value) { return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value} 23:59:59` : new Date(value).toISOString().slice(0, 19).replace("T", " "); }
+
+const selectColumns = `
+  a.id, a.actor_user_id, u.full_name AS actor_name, u.email AS actor_email,
+  a.action, a.entity_type, a.entity_id, a.request_id,
+  CASE WHEN a.ip_address IS NULL THEN NULL ELSE INET6_NTOA(a.ip_address) END AS ip_address,
+  a.user_agent, a.before_data, a.after_data, a.created_at`;
+
+async function runList(query, securityOnly = false) {
+  const f = parseFilters({ ...query, ...(securityOnly ? { securityOnly: "true" } : {}) });
+  const where = f.filters.length ? `WHERE ${f.filters.join(" AND ")}` : "";
+  const [[countRow]] = await pool.query(
+    `SELECT COUNT(*) AS total FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_user_id ${where}`,
+    f.params
+  );
+  const offset = (f.page - 1) * f.limit;
+  const [items] = await pool.query(
+    `SELECT ${selectColumns} FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_user_id ${where}
+     ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?`,
+    [...f.params, f.limit, offset]
+  );
+  return { items: items.map(decodeJson), meta: { page: f.page, limit: f.limit, total: Number(countRow.total), totalPages: Math.ceil(Number(countRow.total) / f.limit) } };
+}
+function decodeJson(row) {
+  for (const key of ["before_data", "after_data"]) {
+    if (typeof row[key] === "string") {
+      try { row[key] = JSON.parse(row[key]); } catch (_) { continue; }
+    }
+    row[key] = redactSensitiveValues(row[key]);
+  }
+  return row;
+}
+function redactSensitiveValues(value) {
+  if (Array.isArray(value)) return value.map(redactSensitiveValues);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, nested]) => [
+    key,
+    /password|passphrase|token|secret|credential|authorization|cookie|private.?key|access.?key/i.test(key)
+      ? "[REDACTED]"
+      : redactSensitiveValues(nested),
+  ]));
+}
+exports.listAuditLogs = (query) => runList(query, false);
+exports.listSecurityEvents = (query) => runList(query, true);
+
+exports.getAuditLog = async (id) => {
+  const [rows] = await pool.query(
+    `SELECT ${selectColumns} FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_user_id WHERE a.id = ? LIMIT 1`, [id]
+  );
+  return rows[0] ? decodeJson(rows[0]) : null;
+};
+
+exports.securitySummary = async () => {
+  const [rows] = await pool.query(`
+    SELECT
+      COUNT(*) AS total_events,
+      SUM(CASE WHEN a.created_at >= UTC_TIMESTAMP() - INTERVAL 24 HOUR THEN 1 ELSE 0 END) AS events_last_24h,
+      SUM(CASE WHEN a.created_at >= UTC_TIMESTAMP() - INTERVAL 24 HOUR
+        AND (a.action REGEXP '(login|auth|password|token|permission|role|failed|denied|security|reset)'
+          OR a.entity_type REGEXP '(auth|session|user|role|permission|security|token|login)')
+        THEN 1 ELSE 0 END) AS security_events_last_24h,
+      COUNT(DISTINCT CASE WHEN a.created_at >= UTC_TIMESTAMP() - INTERVAL 24 HOUR THEN a.actor_user_id END) AS active_actors_24h
+    FROM audit_logs a
+    WHERE a.created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY
+  `);
+  const [topActions] = await pool.query(`
+    SELECT action, COUNT(*) AS count
+    FROM audit_logs
+    WHERE created_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY
+    GROUP BY action ORDER BY count DESC LIMIT 10
+  `);
+  const [[failedLoginStats]] = await pool.query(`
+    SELECT COUNT(*) AS failed_login_attempts,
+           COUNT(DISTINCT ip_address) AS distinct_failed_login_ips
+      FROM audit_logs
+     WHERE action = 'auth.login.failed'
+       AND created_at >= UTC_TIMESTAMP() - INTERVAL 24 HOUR
+  `);
+  const [topFailedLoginIps] = await pool.query(`
+    SELECT INET6_NTOA(ip_address) AS ip_address, COUNT(*) AS attempts
+      FROM audit_logs
+     WHERE action = 'auth.login.failed'
+       AND ip_address IS NOT NULL
+       AND created_at >= UTC_TIMESTAMP() - INTERVAL 24 HOUR
+     GROUP BY ip_address
+     ORDER BY attempts DESC
+     LIMIT 10
+  `);
+  return { windowDays: 30, ...rows[0], total_events: Number(rows[0].total_events || 0),
+    events_last_24h: Number(rows[0].events_last_24h || 0),
+    security_events_last_24h: Number(rows[0].security_events_last_24h || 0),
+    active_actors_24h: Number(rows[0].active_actors_24h || 0),
+    failed_login_attempts: Number(failedLoginStats.failed_login_attempts || 0),
+    distinct_failed_login_ips: Number(failedLoginStats.distinct_failed_login_ips || 0),
+    topFailedLoginIps: topFailedLoginIps.map((row) => ({
+      ipAddress: row.ip_address,
+      attempts: Number(row.attempts),
+    })),
+    topActions: topActions.map(r => ({ action: r.action, count: Number(r.count) })) };
+};
+
+
+===== FILE: backend/src/modules/audit/audit-logger.js =====
+const { pool } = require("../../config/db");
+const logger = require("../../utils/logger");
+
+async function recordSecurityEvent({ action, req, actorUserId = null, entityId = null, details = {} }) {
+  const requestId = typeof req?.id === "string" ? req.id.slice(0, 100) : null;
+  const ipAddress = typeof req?.ip === "string" ? req.ip.slice(0, 45) : null;
+  const userAgent = typeof req?.get === "function"
+    ? req.get("user-agent")
+    : req?.headers?.["user-agent"];
+
+  try {
+    await pool.execute(
+      `INSERT INTO audit_logs
+         (actor_user_id, action, entity_type, entity_id, request_id, ip_address, user_agent, after_data)
+       VALUES (?, ?, 'auth', ?, ?, INET6_ATON(?), ?, ?)`,
+      [
+        actorUserId,
+        action,
+        entityId,
+        requestId,
+        ipAddress,
+        typeof userAgent === "string" ? userAgent.slice(0, 500) : null,
+        JSON.stringify(details),
+      ],
+    );
+  } catch (error) {
+    logger.error("Failed to persist security audit event", {
+      action,
+      requestId,
+      error: error.message,
+    });
+  }
+}
+
+module.exports = { recordSecurityEvent };
+
+
+===== FILE: backend/src/modules/auth/auth.controller.js =====
+const asyncHandler = require("../../utils/asynchandler");
+const { sendSuccess } = require("../../utils/response");
+const service = require("./auth.service");
+
+const COOKIE_NAME = "bb_refresh";
+function cookieOptions() {
+  const secure = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    path: "/api/auth",
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+  };
+}
+function readCookie(req, name) {
+  const header = req.headers.cookie || "";
+  for (const part of header.split(";")) {
+    const index = part.indexOf("=");
+    if (index > -1 && part.slice(0, index).trim() === name) {
+      try { return decodeURIComponent(part.slice(index + 1).trim()); } catch { return null; }
+    }
+  }
+  return null;
+}
+function setRefreshCookie(res, token) {
+  res.cookie(COOKIE_NAME, token, cookieOptions());
+}
+function clearRefreshCookie(res) {
+  res.clearCookie(COOKIE_NAME, { ...cookieOptions(), maxAge: undefined });
+}
+
+const register = asyncHandler(async (req, res) => {
+  const session = await service.register(req.validated.body, req);
+  setRefreshCookie(res, session.refreshToken);
+  return sendSuccess(res, { accessToken: session.accessToken, user: session.user }, { status: 201 });
+});
+const login = asyncHandler(async (req, res) => {
+  const session = await service.login(req.validated.body, req);
+  setRefreshCookie(res, session.refreshToken);
+  return sendSuccess(res, { accessToken: session.accessToken, user: session.user });
+});
+const refresh = asyncHandler(async (req, res) => {
+  const session = await service.refresh(readCookie(req, COOKIE_NAME), req);
+  setRefreshCookie(res, session.refreshToken);
+  return sendSuccess(res, { accessToken: session.accessToken, user: session.user });
+});
+const logout = asyncHandler(async (req, res) => {
+  await service.logout(readCookie(req, COOKIE_NAME), req);
+  clearRefreshCookie(res);
+  return sendSuccess(res, { loggedOut: true });
+});
+
+module.exports = { register, login, refresh, logout };
+
+
+===== FILE: backend/src/modules/auth/auth.repository.js =====
+const { pool, withTransaction } = require("../../config/db");
+
+async function findUserByEmail(email) {
+  const [rows] = await pool.execute(
+    `SELECT id, email, password_hash, full_name, phone, nationality,
+            account_status, email_verified_at
+       FROM users WHERE email = ? LIMIT 1`,
+    [email],
+  );
+  return rows[0] || null;
+}
+
+async function findPublicUserById(id) {
+  const [rows] = await pool.execute(
+    `SELECT id, email, full_name, phone, nationality, account_status,
+            email_verified_at, created_at
+       FROM users WHERE id = ? LIMIT 1`,
+    [id],
+  );
+  return rows[0] || null;
+}
+
+async function createCustomer({ email, passwordHash, fullName, phone, nationality }) {
+  return withTransaction(async (conn) => {
+    const [result] = await conn.execute(
+      `INSERT INTO users (email, password_hash, full_name, phone, nationality)
+       VALUES (?, ?, ?, ?, ?)`,
+      [email, passwordHash, fullName, phone || null, nationality || null],
+    );
+    const [[role]] = await conn.execute(
+      "SELECT id FROM roles WHERE role_key = 'customer' LIMIT 1",
+    );
+    if (!role) throw new Error("Required customer role is not configured.");
+    await conn.execute(
+      "INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)",
+      [result.insertId, role.id],
+    );
+    return result.insertId;
+  });
+}
+
+async function saveRefreshToken({ userId, tokenHash, expiresAt, userAgent, ipAddress }) {
+  await pool.execute(
+    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, user_agent, ip_address)
+     VALUES (?, ?, ?, ?, INET6_ATON(?))`,
+    [userId, tokenHash, expiresAt, userAgent || null, ipAddress || null],
+  );
+}
+
+async function rotateRefreshToken({ oldHash, newHash, expiresAt, userAgent, ipAddress }) {
+  return withTransaction(async (conn) => {
+    const [[stored]] = await conn.execute(
+      `SELECT id, user_id, expires_at, revoked_at
+         FROM refresh_tokens WHERE token_hash = ? FOR UPDATE`,
+      [oldHash],
+    );
+    if (!stored) return { userId: null, reason: "unknown_token" };
+    if (new Date(stored.expires_at) <= new Date()) return { userId: null, reason: "expired_token" };
+    if (stored.revoked_at) {
+      await conn.execute(
+        "UPDATE refresh_tokens SET revoked_at = UTC_TIMESTAMP() WHERE user_id = ? AND revoked_at IS NULL",
+        [stored.user_id],
+      );
+      return { userId: null, reason: "token_reuse", affectedUserId: stored.user_id };
+    }
+    const [updated] = await conn.execute(
+      "UPDATE refresh_tokens SET revoked_at = UTC_TIMESTAMP() WHERE id = ? AND revoked_at IS NULL",
+      [stored.id],
+    );
+    if (updated.affectedRows !== 1) return { userId: null, reason: "token_reuse", affectedUserId: stored.user_id };
+    await conn.execute(
+      `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, user_agent, ip_address)
+       VALUES (?, ?, ?, ?, INET6_ATON(?))`,
+      [stored.user_id, newHash, expiresAt, userAgent || null, ipAddress || null],
+    );
+    return { userId: stored.user_id, reason: null };
+  });
+}
+
+async function revokeRefreshToken(tokenHash) {
+  await pool.execute(
+    `UPDATE refresh_tokens SET revoked_at = UTC_TIMESTAMP()
+     WHERE token_hash = ? AND revoked_at IS NULL`,
+    [tokenHash],
+  );
+}
+
+async function updatePasswordHash(userId, passwordHash) {
+  await pool.execute("UPDATE users SET password_hash = ? WHERE id = ?", [passwordHash, userId]);
+}
+
+async function touchLastLogin(userId) {
+  await pool.execute("UPDATE users SET last_login_at = UTC_TIMESTAMP() WHERE id = ?", [userId]);
+}
+
+module.exports = {
+  findUserByEmail,
+  findPublicUserById,
+  createCustomer,
+  saveRefreshToken,
+  rotateRefreshToken,
+  revokeRefreshToken,
+  updatePasswordHash,
+  touchLastLogin,
+};
+
+
+===== FILE: backend/src/modules/auth/auth.routes.js =====
+const express = require("express");
+const validate = require("../../middleware/validate");
+const authRateLimits = require("../../middleware/authRateLimit");
+
+const { registerBody, loginBody } = require("./auth.schema");
+const lifecycleSchemas = require("./lifecycle.schema");
+const controller = require("./auth.controller");
+const lifecycleController = require("./lifecycle.controller");
+
+const router = express.Router();
+
+// Registration and login
+router.post(
+  "/register",
+  authRateLimits.register,
+  validate({ body: registerBody }),
+  controller.register
+);
+
+router.post(
+  "/login",
+  authRateLimits.login,
+  validate({ body: loginBody }),
+  controller.login
+);
+
+// Existing session endpoints
+router.post("/refresh", authRateLimits.refresh, controller.refresh);
+router.post("/logout", controller.logout);
+
+// Email verification and password reset
+router.post(
+  "/request-verification",
+  authRateLimits.requestVerification,
+  validate({ body: lifecycleSchemas.emailBody }),
+  lifecycleController.requestVerification
+);
+
+router.post(
+  "/verify-email",
+  authRateLimits.verifyEmail,
+  validate({ body: lifecycleSchemas.tokenBody }),
+  lifecycleController.verifyEmail
+);
+
+router.post(
+  "/request-password-reset",
+  authRateLimits.requestPasswordReset,
+  validate({ body: lifecycleSchemas.emailBody }),
+  lifecycleController.requestPasswordReset
+);
+
+router.post(
+  "/reset-password",
+  authRateLimits.resetPassword,
+  validate({ body: lifecycleSchemas.resetBody }),
+  lifecycleController.resetPassword
+);
+
+module.exports = router;
+
+
+===== FILE: backend/src/modules/auth/auth.schema.js =====
+const { z } = require("zod");
+
+const registerBody = z.object({
+  email: z.string().trim().email().max(254).transform((v) => v.toLowerCase()),
+  password: z.string().min(12).max(128),
+  fullName: z.string().trim().min(2).max(160),
+  phone: z.string().trim().max(30).optional().or(z.literal("")),
+  nationality: z.string().trim().max(100).optional().or(z.literal("")),
+}).strict();
+
+const loginBody = z.object({
+  email: z.string().trim().email().max(254).transform((v) => v.toLowerCase()),
+  password: z.string().min(1).max(128),
+}).strict();
+
+module.exports = { registerBody, loginBody };
+
+
+===== FILE: backend/src/modules/auth/auth.service.js =====
+const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
+const AppError = require("../../utils/appError");
+const env = require("../../config/env");
+const { hashPassword, verifyPassword, isLegacyPasswordHash } = require("../../utils/password");
+const repo = require("./auth.repository");
+const { recordSecurityEvent } = require("../audit/audit-logger");
+
+const REFRESH_TTL_DAYS = 30;
+const ACCESS_TTL = "15m";
+const hashToken = (token) => crypto.createHash("sha256").update(token).digest("hex");
+
+function createAccessToken(user) {
+  return jwt.sign(
+    { sub: String(user.id), typ: "access" },
+    env.JWT_ACCESS_SECRET,
+    { expiresIn: ACCESS_TTL, issuer: "bengal-beyond-api", audience: "bengal-beyond-client" },
+  );
+}
+
+function newRefreshToken() {
+  return crypto.randomBytes(48).toString("base64url");
+}
+
+function refreshExpiry() {
+  return new Date(Date.now() + REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000);
+}
+
+function sessionUser(user) {
+  return {
+    id: user.id,
+    email: user.email,
+    fullName: user.full_name,
+    phone: user.phone,
+    nationality: user.nationality,
+    accountStatus: user.account_status,
+    emailVerifiedAt: user.email_verified_at,
+  };
+}
+
+async function issueSession(user, req) {
+  const refreshToken = newRefreshToken();
+  await repo.saveRefreshToken({
+    userId: user.id,
+    tokenHash: hashToken(refreshToken),
+    expiresAt: refreshExpiry(),
+    userAgent: req.get("user-agent"),
+    ipAddress: req.ip,
+  });
+  return { accessToken: createAccessToken(user), refreshToken, user: sessionUser(user) };
+}
+
+async function register(input, req) {
+  const existing = await repo.findUserByEmail(input.email);
+  if (existing) throw AppError.conflict("An account with this email already exists.", undefined, "EMAIL_IN_USE");
+  const passwordHash = await hashPassword(input.password);
+  const id = await repo.createCustomer({ ...input, passwordHash });
+  const user = await repo.findPublicUserById(id);
+  const session = await issueSession(user, req);
+  await recordSecurityEvent({
+    action: "auth.register.success",
+    actorUserId: user.id,
+    entityId: user.id,
+    req,
+    details: { outcome: "success" },
+  });
+  return session;
+}
+
+async function login({ email, password }, req) {
+  const user = await repo.findUserByEmail(email);
+  const passwordMatches = await verifyPassword(user?.password_hash, password);
+
+  if (!user || !passwordMatches) {
+    await recordSecurityEvent({
+      action: "auth.login.failed",
+      req,
+      details: { outcome: "failure", reason: "invalid_credentials" },
+    });
+    throw AppError.unauthorized("Email or password is incorrect.", "INVALID_CREDENTIALS");
+  }
+  if (user.account_status !== "active") {
+    await recordSecurityEvent({
+      action: "auth.login.denied",
+      entityId: user.id,
+      req,
+      details: { outcome: "denied", reason: "inactive_account" },
+    });
+    throw AppError.forbidden("This account is not active.", "ACCOUNT_NOT_ACTIVE");
+  }
+  if (isLegacyPasswordHash(user.password_hash)) {
+    await repo.updatePasswordHash(user.id, await hashPassword(password));
+  }
+  await repo.touchLastLogin(user.id);
+  const session = await issueSession(user, req);
+  await recordSecurityEvent({
+    action: "auth.login.success",
+    actorUserId: user.id,
+    entityId: user.id,
+    req,
+    details: { outcome: "success" },
+  });
+  return session;
+}
+
+async function refresh(rawToken, req) {
+  if (!rawToken || typeof rawToken !== "string" || rawToken.length > 200) {
+    await recordSecurityEvent({
+      action: "auth.refresh.failed",
+      req,
+      details: { outcome: "failure", reason: "invalid_token_format" },
+    });
+    throw AppError.unauthorized("Refresh token is missing or invalid.", "INVALID_REFRESH_TOKEN");
+  }
+  const replacement = newRefreshToken();
+  const rotation = await repo.rotateRefreshToken({
+    oldHash: hashToken(rawToken),
+    newHash: hashToken(replacement),
+    expiresAt: refreshExpiry(),
+    userAgent: req.get("user-agent"),
+    ipAddress: req.ip,
+  });
+  const userId = rotation.userId;
+  if (!userId) {
+    await recordSecurityEvent({
+      action: rotation.reason === "token_reuse" ? "auth.refresh.reuse_detected" : "auth.refresh.failed",
+      entityId: rotation.affectedUserId || null,
+      req,
+      details: { outcome: "failure", reason: rotation.reason },
+    });
+    throw AppError.unauthorized("Refresh token is expired or invalid.", "INVALID_REFRESH_TOKEN");
+  }
+  const user = await repo.findPublicUserById(userId);
+  if (!user || user.account_status !== "active") {
+    await repo.revokeRefreshToken(hashToken(replacement));
+    await recordSecurityEvent({
+      action: "auth.refresh.denied",
+      entityId: userId,
+      req,
+      details: { outcome: "denied", reason: "inactive_account" },
+    });
+    throw AppError.unauthorized("Session is no longer valid.", "INVALID_SESSION");
+  }
+  await recordSecurityEvent({
+    action: "auth.refresh.success",
+    actorUserId: userId,
+    entityId: userId,
+    req,
+    details: { outcome: "success" },
+  });
+  return { accessToken: createAccessToken(user), refreshToken: replacement, user: sessionUser(user) };
+}
+
+async function logout(rawToken, req) {
+  if (rawToken && typeof rawToken === "string" && rawToken.length <= 200) {
+    await repo.revokeRefreshToken(hashToken(rawToken));
+    await recordSecurityEvent({
+      action: "auth.logout",
+      req,
+      details: { outcome: "requested" },
+    });
+  }
+}
+
+module.exports = { register, login, refresh, logout };
+
+
+===== FILE: backend/src/modules/auth/lifecycle.controller.js =====
+const asyncHandler = require("../../utils/asynchandler");
+const { sendSuccess } = require("../../utils/response");
+const service = require("./lifecycle.service");
+
+module.exports = {
+  requestVerification: asyncHandler(async (req, res) => sendSuccess(res, await service.requestEmailVerification(req.validated.body.email))),
+  verifyEmail: asyncHandler(async (req, res) => sendSuccess(res, await service.verifyEmail(req.validated.body.token))),
+  requestPasswordReset: asyncHandler(async (req, res) => sendSuccess(res, await service.requestPasswordReset(req.validated.body.email))),
+  resetPassword: asyncHandler(async (req, res) => sendSuccess(res, await service.resetPassword(req.validated.body.token, req.validated.body.password))),
+};
+
+
+===== FILE: backend/src/modules/auth/lifecycle.repository.js =====
+const { pool, withTransaction } = require("../../config/db");
+
+async function findUserByEmail(email) {
+  const [rows] = await pool.execute(
+    "SELECT id, email, account_status, email_verified_at FROM users WHERE email = ? LIMIT 1", [email],
+  );
+  return rows[0] || null;
+}
+
+async function createActionToken({ userId, type, tokenHash, expiresAt }) {
+  await pool.execute(
+    "INSERT INTO user_action_tokens (user_id, token_type, token_hash, expires_at) VALUES (?, ?, ?, ?)",
+    [userId, type, tokenHash, expiresAt],
+  );
+}
+
+async function consumeActionToken({ tokenHash, type }) {
+  return withTransaction(async (conn) => {
+    const [[row]] = await conn.execute(
+      `SELECT id, user_id FROM user_action_tokens
+       WHERE token_hash = ? AND token_type = ? AND used_at IS NULL AND expires_at > UTC_TIMESTAMP()
+       FOR UPDATE`, [tokenHash, type],
+    );
+    if (!row) return null;
+    const [updated] = await conn.execute(
+      "UPDATE user_action_tokens SET used_at = UTC_TIMESTAMP() WHERE id = ? AND used_at IS NULL", [row.id],
+    );
+    return updated.affectedRows === 1 ? row.user_id : null;
+  });
+}
+
+async function markEmailVerified(userId) {
+  await pool.execute(
+    "UPDATE users SET email_verified_at = COALESCE(email_verified_at, UTC_TIMESTAMP()) WHERE id = ? AND account_status = 'active'",
+    [userId],
+  );
+}
+
+async function updatePasswordAndRevokeSessions(userId, passwordHash) {
+  await withTransaction(async (conn) => {
+    await conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", [passwordHash, userId]);
+    await conn.execute("UPDATE refresh_tokens SET revoked_at = UTC_TIMESTAMP() WHERE user_id = ? AND revoked_at IS NULL", [userId]);
+    await conn.execute("UPDATE user_action_tokens SET used_at = UTC_TIMESTAMP() WHERE user_id = ? AND used_at IS NULL", [userId]);
+  });
+}
+
+module.exports = { findUserByEmail, createActionToken, consumeActionToken, markEmailVerified, updatePasswordAndRevokeSessions };
+
+
+===== FILE: backend/src/modules/auth/lifecycle.schema.js =====
+const { z } = require("zod");
+const email = z.string().trim().email().max(254).transform((value) => value.toLowerCase());
+const token = z.string().trim().min(32).max(200);
+const password = z.string().min(12).max(128);
+
+module.exports = {
+  emailBody: z.object({ email }).strict(),
+  tokenBody: z.object({ token }).strict(),
+  resetBody: z.object({ token, password }).strict(),
+};
+
+
+===== FILE: backend/src/modules/auth/lifecycle.service.js =====
+const crypto = require("crypto");
+const AppError = require("../../utils/appError");
+const env = require("../../config/env");
+const { hashPassword } = require("../../utils/password");
+const repo = require("./lifecycle.repository");
+const mailer = require("../../services/mailer");
+const logger = require("../../utils/logger");
+
+const TOKEN_TTL_MINUTES = 30;
+const hash = (raw) => crypto.createHash("sha256").update(raw).digest("hex");
+const createRawToken = () => crypto.randomBytes(32).toString("base64url");
+const expiry = () => new Date(Date.now() + TOKEN_TTL_MINUTES * 60 * 1000);
+const publicMessage = "If the account is eligible, an email with further instructions will be sent.";
+
+async function issueToken(user, type, subject, urlPath) {
+  const raw = createRawToken();
+  await repo.createActionToken({ userId: user.id, type, tokenHash: hash(raw), expiresAt: expiry() });
+  const base = env.FRONTEND_URL.split(",")[0].trim();
+  if (!base) throw new Error("FRONTEND_URL must be configured for account action links.");
+  const link = new URL(urlPath, base);
+  link.searchParams.set("token", raw);
+  void mailer.sendActionEmail({
+    to: user.email,
+    subject,
+    text: `Use this link within ${TOKEN_TTL_MINUTES} minutes. If you did not request this, ignore this email.\n\n${link.toString()}`,
+  }).catch((error) => {
+    logger.error("Account action email delivery failed", {
+      eventType: type,
+      error: error.message,
+    });
+  });
+}
+
+async function requestEmailVerification(email) {
+  const user = await repo.findUserByEmail(email);
+  if (user && user.account_status === "active" && !user.email_verified_at) {
+    await issueToken(user, "email_verification", "Verify your Bengal Beyond email", "/verify-email");
+  }
+  return { message: publicMessage };
+}
+
+async function verifyEmail(rawToken) {
+  const userId = await repo.consumeActionToken({ tokenHash: hash(rawToken), type: "email_verification" });
+  if (!userId) throw AppError.badRequest("Verification link is invalid or expired.", undefined, "INVALID_ACTION_TOKEN");
+  await repo.markEmailVerified(userId);
+  return { emailVerified: true };
+}
+
+async function requestPasswordReset(email) {
+  const user = await repo.findUserByEmail(email);
+  if (user && user.account_status === "active") {
+    await issueToken(user, "password_reset", "Reset your Bengal Beyond password", "/reset-password");
+  }
+  return { message: publicMessage };
+}
+
+async function resetPassword(rawToken, password) {
+  const userId = await repo.consumeActionToken({ tokenHash: hash(rawToken), type: "password_reset" });
+  if (!userId) throw AppError.badRequest("Password reset link is invalid or expired.", undefined, "INVALID_ACTION_TOKEN");
+  const passwordHash = await hashPassword(password);
+  await repo.updatePasswordAndRevokeSessions(userId, passwordHash);
+  return { passwordReset: true, sessionsRevoked: true };
+}
+
+module.exports = { requestEmailVerification, verifyEmail, requestPasswordReset, resetPassword };
+
+
+===== FILE: backend/src/modules/blog/blog.routes.js =====
+const express = require("express");
+const { z } = require("zod");
+const asyncHandler = require("../../utils/asynchandler");
+const { sendSuccess } = require("../../utils/response");
+const service = require("./blog.service");
+
+const router = express.Router();
+const idSchema = z.coerce.number().int().positive();
+const paginationSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20)
+});
+const statusSchema = z.enum(["draft", "published", "archived"]);
+const postSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  slug: z.string().trim().min(1).max(220).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  excerpt: z.string().trim().max(500).nullable().optional(),
+  content: z.string().min(1),
+  featured_image_url: z.string().trim().url().max(1024).nullable().optional(),
+  featured_image_alt: z.string().trim().max(255).nullable().optional(),
+  status: statusSchema.optional(),
+  seo_title: z.string().trim().max(200).nullable().optional(),
+  seo_description: z.string().trim().max(320).nullable().optional()
+});
+const patchSchema = postSchema.partial();
+
+function createBlogRouter({ authenticate, authorize }) {
+  if (typeof authenticate !== "function" || typeof authorize !== "function") {
+    throw new Error("Blog router requires the application's real authenticate and authorize middleware");
+  }
+
+  const admin = express.Router();
+  admin.use(authenticate, authorize("content.manage"));
+  admin.get("/", asyncHandler(async (req, res) => {
+    const q = paginationSchema.parse(req.query);
+    const status = req.query.status === undefined ? undefined : statusSchema.parse(req.query.status);
+    return sendSuccess(res, await service.listAdmin({ ...q, status }));
+  }));
+  admin.get("/:id", asyncHandler(async (req, res) => {
+    const post = await service.getAdminById(idSchema.parse(req.params.id));
+    if (!post) return res.status(404).json({ success: false, error: { code: "BLOG_POST_NOT_FOUND", message: "Blog post not found" } });
+    return sendSuccess(res, post);
+  }));
+  admin.post("/", asyncHandler(async (req, res) => {
+    const data = postSchema.parse(req.body);
+    return sendSuccess(res, await service.create(data, req.user?.id), { status: 201 });
+  }));
+  admin.patch("/:id", asyncHandler(async (req, res) => {
+    const id = idSchema.parse(req.params.id);
+    const data = patchSchema.parse(req.body);
+    const post = await service.update(id, data);
+    if (!post) return res.status(404).json({ success: false, error: { code: "BLOG_POST_NOT_FOUND", message: "Blog post not found" } });
+    return sendSuccess(res, post);
+  }));
+  admin.delete("/:id", asyncHandler(async (req, res) => {
+    const id = idSchema.parse(req.params.id);
+    if (!(await service.archive(id))) return res.status(404).json({ success: false, error: { code: "BLOG_POST_NOT_FOUND", message: "Blog post not found" } });
+    return sendSuccess(res, { id, archived: true });
+  }));
+  router.use("/admin", admin);
+
+  // Public routes: intentionally do not use authentication middleware.
+  router.get("/", asyncHandler(async (req, res) => {
+    const q = paginationSchema.parse(req.query);
+    return sendSuccess(res, await service.listPublic(q));
+  }));
+  router.get("/:slug", asyncHandler(async (req, res) => {
+    const slug = z.string().min(1).max(220).parse(req.params.slug);
+    const post = await service.getPublicBySlug(slug);
+    if (!post) return res.status(404).json({ success: false, error: { code: "BLOG_POST_NOT_FOUND", message: "Blog post not found" } });
+    return sendSuccess(res, post);
+  }));
+
+  return router;
+}
+
+module.exports = { createBlogRouter };
+
+
+===== FILE: backend/src/modules/blog/blog.service.js =====
+const { pool } = require("../../config/db");
+
+async function listPublic({ page, limit }) {
+  const offset = (page - 1) * limit;
+  const [items] = await pool.execute(
+    `SELECT id, title, slug, excerpt, featured_image_url, featured_image_alt,
+            seo_title, seo_description, published_at, created_at
+       FROM blog_posts WHERE status = 'published'
+      ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?`, [limit, offset]
+  );
+  const [[count]] = await pool.execute("SELECT COUNT(*) AS total FROM blog_posts WHERE status = 'published'");
+  const total = Number(count.total);
+  return { items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+}
+
+async function getPublicBySlug(slug) {
+  const [rows] = await pool.execute(
+    `SELECT id, title, slug, excerpt, body AS content, featured_image_url, featured_image_alt,
+            seo_title, seo_description, published_at, created_at
+       FROM blog_posts WHERE slug = ? AND status = 'published' LIMIT 1`, [slug]
+  );
+  return rows[0] || null;
+}
+
+async function listAdmin({ page, limit, status }) {
+  const offset = (page - 1) * limit;
+  const where = status ? "WHERE status = ?" : "";
+  const params = status ? [status, limit, offset] : [limit, offset];
+  const countParams = status ? [status] : [];
+  const [items] = await pool.execute(
+    `SELECT id, title, slug, excerpt, featured_image_url, featured_image_alt, status,
+            seo_title, seo_description, author_user_id AS author_id, published_at, created_at, updated_at
+       FROM blog_posts ${where} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`, params
+  );
+  const [[count]] = await pool.execute(`SELECT COUNT(*) AS total FROM blog_posts ${where}`, countParams);
+  const total = Number(count.total);
+  return { items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+}
+
+async function getAdminById(id) {
+  const [rows] = await pool.execute(
+    `SELECT id, title, slug, excerpt, body AS content, featured_image_url, featured_image_alt,
+            status, seo_title, seo_description, author_user_id AS author_id,
+            published_at, created_at, updated_at
+       FROM blog_posts WHERE id = ? LIMIT 1`, [id]
+  );
+  return rows[0] || null;
+}
+
+async function create(data, authorId) {
+  const publishedAt = data.status === "published" ? new Date() : null;
+  const [result] = await pool.execute(
+    `INSERT INTO blog_posts (title, slug, excerpt, body, featured_image_url, featured_image_alt,
+      status, seo_title, seo_description, author_user_id, published_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [data.title, data.slug, data.excerpt ?? null, data.content, data.featured_image_url ?? null,
+     data.featured_image_alt ?? null, data.status || "draft", data.seo_title ?? null,
+     data.seo_description ?? null, authorId || null, publishedAt]
+  );
+  return getAdminById(result.insertId);
+}
+
+async function update(id, data) {
+  const current = await getAdminById(id);
+  if (!current) return null;
+  const next = { ...current, ...data };
+  let publishedAt = current.published_at;
+  if (data.status === "published" && current.status !== "published") publishedAt = new Date();
+  if (data.status && data.status !== "published") publishedAt = null;
+  await pool.execute(
+    `UPDATE blog_posts SET title=?, slug=?, excerpt=?, body=?, featured_image_url=?,
+      featured_image_alt=?, status=?, seo_title=?, seo_description=?, published_at=? WHERE id=?`,
+    [next.title, next.slug, next.excerpt, next.content, next.featured_image_url,
+     next.featured_image_alt, next.status, next.seo_title, next.seo_description, publishedAt, id]
+  );
+  return getAdminById(id);
+}
+
+async function archive(id) {
+  const [result] = await pool.execute(
+    "UPDATE blog_posts SET status='archived', published_at=NULL WHERE id=?", [id]
+  );
+  return result.affectedRows > 0;
+}
+
+module.exports = { listPublic, getPublicBySlug, listAdmin, getAdminById, create, update, archive };
+
+
+===== FILE: backend/src/modules/blog/README.md =====
+# Bengal Beyond — Phase 6.2 Blog API
+
+Backend-only Blog API package. Its migration extends the existing `blog_posts` table without removing existing posts or changing other tables.
+
+## Features
+- Public paginated list of published posts
+- Public post details by slug
+- Admin list with status filtering
+- Admin create and update
+- Draft, published, and archived states
+- Admin delete performs a soft archive
+- Zod validation
+- Admin routes require real authentication and `content.manage`
+
+## Install
+1. Copy `src/modules/blog/` into your backend's `src/modules/blog/`.
+2. Run `database/migrations/0062_create_blog_posts.sql` against `bengalbeyond` before starting the API. This adds the image and SEO columns used by the API; existing post content and authors remain in `body` and `author_user_id`.
+3. Add this to `src/routes/index.js` (reuse existing imports if present):
+
+```js
+const { createBlogRouter } = require("../modules/blog/blog.routes");
+const authenticate = require("../middleware/authenticate");
+const authorize = require("../middleware/authorize");
+router.use("/blog", createBlogRouter({ authenticate, authorize }));
+```
+
+4. Restart the API.
+
+## Endpoints
+Public:
+- `GET /api/blog?page=1&limit=20`
+- `GET /api/blog/:slug`
+
+Admin (Bearer token + `content.manage`):
+- `GET /api/blog/admin?page=1&limit=20&status=draft`
+- `POST /api/blog/admin`
+- `PATCH /api/blog/admin/:id`
+- `DELETE /api/blog/admin/:id` (soft-archives the post)
+
+## Create example
+```json
+{
+  "title": "A weekend in Sundarbans",
+  "slug": "a-weekend-in-sundarbans",
+  "excerpt": "A short guide to planning a responsible visit.",
+  "content": "<p>Article body...</p>",
+  "featured_image_url": "https://example.com/images/sundarbans.jpg",
+  "featured_image_alt": "Mangrove forest in the Sundarbans",
+  "status": "draft",
+  "seo_title": "Sundarbans travel guide",
+  "seo_description": "Plan a responsible trip to the Sundarbans."
+}
+```
+
+## Important notes
+- `content` is stored as text/HTML. Sanitize HTML before rendering it in a browser; this API does not include an HTML sanitizer.
+- Images are referenced by URL; file upload/storage integration is not included.
+- Slugs must be unique; duplicate slugs will produce a database duplicate-key error.
+- Requires the project's existing `express`, `zod`, `mysql2`, async handler, response helper, and DB pool.
+- No live database or end-to-end test has been run as part of package generation.
+
+
+===== FILE: backend/src/modules/booking-pricing/INSTALL_MOUNT.txt =====
+PHASE 5.9 QUICK INSTALL
+
+1. Confirm Phase 5.8 is installed and execute:
+   migrations/0058_coupons_discount_management.sql
+
+2. Copy:
+   src/modules/booking-pricing/
+   into:
+   E:\Bangle_beyond\backend\src\modules\booking-pricing\
+
+3. Edit src/routes/index.js and mount behind your real customer-auth middleware:
+
+   router.use(
+     "/bookings",
+     YOUR_EXISTING_CUSTOMER_AUTH_MIDDLEWARE,
+     require("../modules/booking-pricing/pricing.routes")
+   );
+
+4. Replace the placeholder with your actual login/JWT middleware. The uploaded starter routes do not define a customer auth middleware. It must populate req.user.id.
+
+5. Wire markCouponRedeemed(conn, bookingId) into the verified payment-success transaction in Phase 4.8.
+
+6. Wire releaseCoupon(conn, bookingId) into terminal cancellation/failure/expiry transactions. Do not release for a retryable payment failure.
+
+7. Ensure payment initiation reads bookings.total_amount after coupon application and stores that amount in payments.amount.
+
+8. Restart backend and test with an unpaid booking owned by a logged-in customer.
+
+
+===== FILE: backend/src/modules/booking-pricing/pricing.controller.js =====
+const service = require("./pricing.service");
+const { normalizeCode, parseBookingId } = require("./pricing.validation");
+
+function send(res, data, message) {
+  return res.status(200).json({ success: true, message, data });
+}
+function idOrFail(value) {
+  const id = parseBookingId(value);
+  if (!id) {
+    const error = new Error("A valid bookingId is required");
+    error.statusCode = 400;
+    throw error;
+  }
+  return id;
+}
+exports.getPricing = async (req, res, next) => {
+  try {
+    const data = await service.getPricing({ bookingId: idOrFail(req.params.bookingId), userId: req.user.id });
+    return send(res, data, "Booking pricing retrieved");
+  } catch (error) { next(error); }
+};
+exports.applyCoupon = async (req, res, next) => {
+  try {
+    const code = normalizeCode(req.body && req.body.code);
+    if (!code) {
+      const error = new Error("Coupon code must be 2–40 letters, numbers, hyphens or underscores");
+      error.statusCode = 400;
+      throw error;
+    }
+    const data = await service.applyCoupon({
+      bookingId: idOrFail(req.params.bookingId), userId: req.user.id, code
+    });
+    return send(res, data, "Coupon applied and booking total updated");
+  } catch (error) { next(error); }
+};
+exports.removeCoupon = async (req, res, next) => {
+  try {
+    const data = await service.removeCoupon({ bookingId: idOrFail(req.params.bookingId), userId: req.user.id });
+    return send(res, data, "Coupon removal processed");
+  } catch (error) { next(error); }
+};
+
+
+===== FILE: backend/src/modules/booking-pricing/pricing.routes.js =====
+const express = require("express");
+const controller = require("./pricing.controller");
+const router = express.Router();
+
+router.get("/:bookingId/pricing", controller.getPricing);
+router.post("/:bookingId/coupon", controller.applyCoupon);
+router.delete("/:bookingId/coupon", controller.removeCoupon);
+
+module.exports = router;
+
+
+===== FILE: backend/src/modules/booking-pricing/pricing.service.js =====
+const { pool, withTransaction } = require("../../config/db");
+
+function fail(message, statusCode) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  throw error;
+}
+
+// Convert MariaDB DECIMAL strings to integer cents; avoid floating point totals.
+function cents(value) {
+  const text = String(value ?? "0");
+  if (!/^-?\d+(?:\.\d{1,2})?$/.test(text)) fail("Invalid monetary value in booking data", 500);
+  const negative = text.startsWith("-");
+  const unsigned = negative ? text.slice(1) : text;
+  const [whole, fraction = ""] = unsigned.split(".");
+  const result = Number(whole) * 100 + Number((fraction + "00").slice(0, 2));
+  return negative ? -result : result;
+}
+function money(value) {
+  return (value / 100).toFixed(2);
+}
+function computeDiscount(coupon, subtotalCents) {
+  const valueCents = cents(coupon.discount_value);
+  let discount;
+  if (coupon.discount_type === "percentage") {
+    // discount_value is DECIMAL(12,2), e.g. 10.00 means 10 percent.
+    discount = Math.round((subtotalCents * valueCents) / 10000);
+  } else {
+    discount = valueCents;
+  }
+  if (coupon.max_discount_amount !== null) {
+    discount = Math.min(discount, cents(coupon.max_discount_amount));
+  }
+  return Math.max(0, Math.min(discount, subtotalCents));
+}
+async function loadOwnedBooking(conn, bookingId, userId) {
+  const [[booking]] = await conn.execute(
+    `SELECT id, user_id, booking_status, payment_status, currency_code,
+            subtotal, discount_amount, member_discount_amount, tax_amount, total_amount
+       FROM bookings WHERE id = ? FOR UPDATE`, [bookingId]);
+  if (!booking) fail("Booking not found", 404);
+  if (String(booking.user_id) !== String(userId)) fail("Booking does not belong to the authenticated customer", 403);
+  if (!["pending_review", "awaiting_payment"].includes(booking.booking_status)) {
+    fail("Pricing can only be changed while the booking is awaiting review or payment", 409);
+  }
+  if (["paid", "partially_refunded", "refunded"].includes(booking.payment_status)) {
+    fail("Pricing cannot be changed after payment", 409);
+  }
+  return booking;
+}
+async function checkCoupon(conn, coupon, booking, userId, bookingId) {
+  if (!coupon || coupon.status !== "active") fail("Coupon is invalid or inactive", 404);
+  const now = new Date();
+  if (coupon.starts_at && new Date(coupon.starts_at) > now) fail("Coupon is not active yet", 409);
+  if (coupon.ends_at && new Date(coupon.ends_at) < now) fail("Coupon has expired", 409);
+  const subtotal = cents(booking.subtotal);
+  if (subtotal < cents(coupon.min_order_amount)) fail("Booking subtotal does not meet the coupon minimum", 409);
+
+  const [[usage]] = await conn.execute(
+    `SELECT COUNT(*) AS total FROM coupon_redemptions
+      WHERE coupon_id = ? AND status IN ('reserved','redeemed') AND booking_id <> ?`,
+    [coupon.id, bookingId]);
+  if (coupon.usage_limit !== null && Number(usage.total) >= Number(coupon.usage_limit)) {
+    fail("Coupon usage limit has been reached", 409);
+  }
+  const [[userUsage]] = await conn.execute(
+    `SELECT COUNT(*) AS total FROM coupon_redemptions
+      WHERE coupon_id = ? AND user_id = ? AND status IN ('reserved','redeemed') AND booking_id <> ?`,
+    [coupon.id, userId, bookingId]);
+  if (coupon.per_user_limit !== null && Number(userUsage.total) >= Number(coupon.per_user_limit)) {
+    fail("Your coupon usage limit has been reached", 409);
+  }
+}
+function totals(booking, discountCents) {
+  const subtotal = cents(booking.subtotal);
+  const tax = cents(booking.tax_amount);
+  return {
+    discountAmount: money(discountCents),
+    totalAmount: money(Math.max(0, subtotal - discountCents + tax))
+  };
+}
+
+async function applyCoupon({ bookingId, userId, code }) {
+  return withTransaction(async (conn) => {
+    const booking = await loadOwnedBooking(conn, bookingId, userId);
+    // Lock the coupon row to serialize competing reservations against its usage limits.
+    const [[coupon]] = await conn.execute("SELECT * FROM coupons WHERE code = ? FOR UPDATE", [code]);
+    await checkCoupon(conn, coupon, booking, userId, bookingId);
+    const memberCents = cents(booking.member_discount_amount);
+    const couponCents = computeDiscount(coupon, cents(booking.subtotal) - memberCents);
+    if (couponCents <= 0) fail("Coupon does not produce a discount for this booking", 409);
+    const amounts = totals(booking, memberCents + couponCents);
+
+    const [[existing]] = await conn.execute(
+      "SELECT id, coupon_id, status FROM coupon_redemptions WHERE booking_id = ? FOR UPDATE",
+      [bookingId]);
+    if (existing && existing.status === "redeemed") fail("A redeemed coupon cannot be changed", 409);
+    if (existing) {
+      await conn.execute(
+        `UPDATE coupon_redemptions
+            SET coupon_id = ?, user_id = ?, discount_amount = ?, status = 'reserved'
+          WHERE id = ?`,
+        [coupon.id, userId, money(couponCents), existing.id]);
+    } else {
+      await conn.execute(
+        `INSERT INTO coupon_redemptions
+          (coupon_id, booking_id, user_id, discount_amount, status)
+         VALUES (?, ?, ?, ?, 'reserved')`,
+        [coupon.id, bookingId, userId, money(couponCents)]);
+    }
+    await conn.execute(
+      `UPDATE bookings SET discount_amount = ?, total_amount = ? WHERE id = ?`,
+      [amounts.discountAmount, amounts.totalAmount, bookingId]);
+
+    return {
+      bookingId: Number(bookingId),
+      coupon: { id: Number(coupon.id), code: coupon.code, discountType: coupon.discount_type },
+      currencyCode: booking.currency_code,
+      subtotal: money(cents(booking.subtotal)),
+      memberDiscount: money(memberCents),
+      couponDiscount: money(couponCents),
+      discountAmount: amounts.discountAmount,
+      taxAmount: money(cents(booking.tax_amount)),
+      totalAmount: amounts.totalAmount,
+      redemptionStatus: "reserved"
+    };
+  });
+}
+
+async function removeCoupon({ bookingId, userId }) {
+  return withTransaction(async (conn) => {
+    const booking = await loadOwnedBooking(conn, bookingId, userId);
+    const [[redemption]] = await conn.execute(
+      "SELECT id, status FROM coupon_redemptions WHERE booking_id = ? FOR UPDATE", [bookingId]);
+    if (!redemption || redemption.status === "released") {
+      return {
+        bookingId: Number(bookingId), discountAmount: money(cents(booking.discount_amount)),
+        totalAmount: money(cents(booking.total_amount)), couponRemoved: false
+      };
+    }
+    if (redemption.status === "redeemed") fail("A redeemed coupon cannot be removed", 409);
+    const memberCents = cents(booking.member_discount_amount);
+    const amount = totals(booking, memberCents);
+    await conn.execute("UPDATE coupon_redemptions SET status = 'released' WHERE id = ?", [redemption.id]);
+    await conn.execute(
+      "UPDATE bookings SET discount_amount = ?, total_amount = ? WHERE id = ?",
+      [amount.discountAmount, amount.totalAmount, bookingId]);
+    return {
+      bookingId: Number(bookingId), currencyCode: booking.currency_code,
+      subtotal: money(cents(booking.subtotal)), discountAmount: amount.discountAmount,
+      taxAmount: money(cents(booking.tax_amount)), totalAmount: amount.totalAmount,
+      couponRemoved: true
+    };
+  });
+}
+
+// Call from the trusted payment-success webhook, inside the SAME transaction that marks payment successful.
+async function markCouponRedeemed(conn, bookingId) {
+  await conn.execute(
+    `UPDATE coupon_redemptions SET status = 'redeemed'
+      WHERE booking_id = ? AND status = 'reserved'`, [bookingId]);
+}
+
+// Call from trusted cancellation/failure/expiry handling when the booking will no longer be payable.
+// Do not release on a transient gateway retry.
+async function releaseCoupon(conn, bookingId) {
+  await conn.execute(
+    `UPDATE coupon_redemptions SET status = 'released'
+      WHERE booking_id = ? AND status = 'reserved'`, [bookingId]);
+}
+
+// Recalculate the payable amount after any trusted server-side tax/subtotal change.
+// Use this within the same transaction as that price change; never accept amounts from the client.
+async function recalculateBooking(conn, bookingId) {
+  const [[booking]] = await conn.execute(
+    `SELECT subtotal, member_discount_amount, tax_amount FROM bookings WHERE id = ? FOR UPDATE`, [bookingId]);
+  if (!booking) fail("Booking not found", 404);
+  const [[redemption]] = await conn.execute(
+    `SELECT discount_amount, status FROM coupon_redemptions
+      WHERE booking_id = ? FOR UPDATE`, [bookingId]);
+  const couponCents = redemption && ["reserved", "redeemed"].includes(redemption.status)
+    ? cents(redemption.discount_amount) : 0;
+  const result = totals(booking, cents(booking.member_discount_amount) + couponCents);
+  await conn.execute(
+    "UPDATE bookings SET discount_amount = ?, total_amount = ? WHERE id = ?",
+    [result.discountAmount, result.totalAmount, bookingId]);
+  return result;
+}
+
+async function getPricing({ bookingId, userId }) {
+  const [[booking]] = await pool.execute(
+    `SELECT b.id, b.currency_code, b.subtotal, b.discount_amount, b.tax_amount,
+            b.total_amount, b.booking_status, cr.status AS coupon_status,
+            c.code AS coupon_code
+       FROM bookings b
+       LEFT JOIN coupon_redemptions cr ON cr.booking_id = b.id
+       LEFT JOIN coupons c ON c.id = cr.coupon_id
+      WHERE b.id = ? AND b.user_id = ?`, [bookingId, userId]);
+  if (!booking) fail("Booking not found", 404);
+  return booking;
+}
+
+module.exports = {
+  applyCoupon, removeCoupon, getPricing, markCouponRedeemed, releaseCoupon, recalculateBooking
+};
+
+
+===== FILE: backend/src/modules/booking-pricing/pricing.validation.js =====
+const CODE = /^[A-Z0-9][A-Z0-9_-]{1,39}$/;
+
+function normalizeCode(value) {
+  if (typeof value !== "string") return null;
+  const code = value.trim().toUpperCase();
+  return CODE.test(code) ? code : null;
+}
+
+function parseBookingId(value) {
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+module.exports = { normalizeCode, parseBookingId };
+
+
+===== FILE: backend/src/modules/bookings/admin-booking.controller.js =====
+const service = require("./admin-booking.service");
+const { listQuery, statusBody, noteBody } = require("./admin-booking.schema");
+const asyncHandler = require("../../utils/asynchandler");
+
+function parse(schema, value) {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    const AppError = require("../../utils/appError");
+    throw AppError.validation(result.error.flatten());
+  }
+  return result.data;
+}
+const list = asyncHandler(async (req, res) => res.json({ success: true, data: await service.list(parse(listQuery, req.query)) }));
+const get = asyncHandler(async (req, res) => res.json({ success: true, data: await service.get(Number(req.params.id)) }));
+const changeStatus = asyncHandler(async (req, res) => res.json({ success: true, data: await service.changeStatus(Number(req.params.id), parse(statusBody, req.body), req.user || req.auth?.user) }));
+const addNote = asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await service.note(Number(req.params.id), parse(noteBody, req.body), req.user || req.auth?.user) }));
+const summary = asyncHandler(async (req, res) => res.json({ success: true, data: await service.summary() }));
+module.exports = { list, get, changeStatus, addNote, summary };
+
+
+===== FILE: backend/src/modules/bookings/admin-booking.repository.js =====
+const { pool, withTransaction } = require("../../config/db");
+const { releaseCoupon } = require("../booking-pricing/pricing.service");
+const { queueBookingEmail } = require("../notifications/booking-events");
+
+const LIST_SELECT = `SELECT b.id, b.booking_reference, b.booking_status, b.payment_status,
+    b.customer_name, b.customer_email, b.customer_phone, b.currency_code,
+    b.subtotal, b.discount_amount, b.total_amount, b.created_at,
+    (b.user_id IS NULL) AS is_guest,
+    (SELECT COALESCE(SUM(bi.quantity), 0) FROM booking_items bi WHERE bi.booking_id = b.id) AS travelers,
+    (SELECT JSON_UNQUOTE(JSON_EXTRACT(bi.tour_snapshot, '$.title')) FROM booking_items bi
+      WHERE bi.booking_id = b.id ORDER BY bi.id LIMIT 1) AS tour_title,
+    (SELECT td.starts_at FROM booking_items bi JOIN tour_departures td ON td.id = bi.departure_id
+      WHERE bi.booking_id = b.id ORDER BY bi.id LIMIT 1) AS departs_at
+  FROM bookings b`;
+
+async function list(filters) {
+  const where = [];
+  const params = {};
+  if (filters.q) {
+    where.push("(b.booking_reference LIKE :q OR b.customer_name LIKE :q OR b.customer_email LIKE :q OR b.customer_phone LIKE :q)");
+    params.q = `%${filters.q}%`;
+  }
+  if (filters.status) { where.push("b.booking_status = :status"); params.status = filters.status; }
+  if (filters.payment_status) { where.push("b.payment_status = :payment_status"); params.payment_status = filters.payment_status; }
+  if (filters.date_from) { where.push("b.created_at >= :date_from"); params.date_from = `${filters.date_from} 00:00:00`; }
+  if (filters.date_to) { where.push("b.created_at < DATE_ADD(:date_to, INTERVAL 1 DAY)"); params.date_to = `${filters.date_to} 00:00:00`; }
+  if (filters.departure_id) { where.push("EXISTS (SELECT 1 FROM booking_items bi WHERE bi.booking_id = b.id AND bi.departure_id = :departure_id)"); params.departure_id = filters.departure_id; }
+  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const [[{ total }]] = await pool.execute(`SELECT COUNT(*) AS total FROM bookings b ${clause}`, params);
+  const sort = ({ created_at: "b.created_at", updated_at: "b.updated_at", total_amount: "b.total_amount" })[filters.sort];
+  const order = filters.order === "asc" ? "ASC" : "DESC";
+  const offset = (filters.page - 1) * filters.limit;
+  const [rows] = await pool.execute(
+    `SELECT b.id, b.booking_reference, b.booking_status, b.payment_status, b.customer_name, b.customer_email, b.customer_phone, b.currency_code, b.total_amount, b.created_at, b.updated_at,
+      (SELECT COUNT(*) FROM booking_items bi WHERE bi.booking_id = b.id) AS item_count,
+      (SELECT COALESCE(SUM(bi.quantity), 0) FROM booking_items bi WHERE bi.booking_id = b.id) AS traveler_count
+     FROM bookings b ${clause} ORDER BY ${sort} ${order}, b.id ${order} LIMIT :limit OFFSET :offset`,
+    { ...params, limit: filters.limit, offset }
+  );
+  return { rows, total: Number(total) };
+}
+
+async function findById(id) {
+  const [[booking]] = await pool.execute("SELECT * FROM bookings WHERE id = ?", [id]);
+  if (!booking) return null;
+  const [items] = await pool.execute(
+    `SELECT bi.*, t.title AS current_tour_title, td.starts_at, td.ends_at, td.status AS departure_status
+     FROM booking_items bi JOIN tours t ON t.id = bi.tour_id JOIN tour_departures td ON td.id = bi.departure_id
+     WHERE bi.booking_id = ? ORDER BY bi.id`, [id]);
+  const [travelers] = await pool.execute("SELECT id, traveler_name, traveler_type, nationality, created_at FROM booking_travelers WHERE booking_id = ? ORDER BY id", [id]);
+  const [payments] = await pool.execute("SELECT id, provider, provider_payment_id, amount, currency_code, status, verified_at, created_at, updated_at FROM payments WHERE booking_id = ? ORDER BY id DESC", [id]);
+  const [history] = await pool.execute("SELECT id, previous_status, new_status, changed_by_user_id, note, created_at FROM booking_status_history WHERE booking_id = ? ORDER BY id DESC", [id]);
+  const [notes] = await pool.execute("SELECT id, admin_user_id, note, visibility, created_at FROM booking_notes WHERE booking_id = ? ORDER BY id DESC", [id]);
+  return { ...booking, items, travelers, payments, status_history: history, notes };
+}
+
+async function updateStatus(id, nextStatus, adminId, note) {
+  return withTransaction(async (conn) => {
+    const [[booking]] = await conn.execute("SELECT id, booking_status, payment_status FROM bookings WHERE id = ? FOR UPDATE", [id]);
+    if (!booking) return { notFound: true };
+    const allowed = {
+      pending_review: ["awaiting_payment", "confirmed", "rejected", "cancelled"],
+      awaiting_payment: ["confirmed", "rejected", "cancelled", "expired"],
+      confirmed: ["cancellation_requested", "cancelled", "completed"],
+      cancellation_requested: ["confirmed", "cancelled"],
+      rejected: [], cancelled: [], completed: [], expired: [],
+    };
+    if (booking.booking_status === nextStatus) return { unchanged: true, status: nextStatus };
+    if (!(allowed[booking.booking_status] || []).includes(nextStatus)) return { invalidTransition: true, from: booking.booking_status, to: nextStatus };
+    if (nextStatus === "confirmed" && booking.payment_status !== "paid" && booking.payment_status !== "not_required") {
+      return { paymentRequired: true, payment_status: booking.payment_status };
+    }
+    if (nextStatus === "completed" && booking.booking_status !== "confirmed") return { invalidTransition: true, from: booking.booking_status, to: nextStatus };
+    const [result] = await conn.execute(
+      `UPDATE bookings SET booking_status = ?, confirmed_at = CASE WHEN ? = 'confirmed' THEN UTC_TIMESTAMP() ELSE confirmed_at END,
+       cancelled_at = CASE WHEN ? = 'cancelled' THEN UTC_TIMESTAMP() ELSE cancelled_at END WHERE id = ?`,
+      [nextStatus, nextStatus, nextStatus, id]);
+    await conn.execute(
+      "INSERT INTO booking_status_history (booking_id, previous_status, new_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)",
+      [id, booking.booking_status, nextStatus, adminId || null, note || null]);
+    if (["cancelled", "rejected", "expired"].includes(nextStatus)) {
+      const [[conv]] = await conn.execute(
+        "SELECT COUNT(*) AS c FROM seat_holds WHERE booking_id = ? AND hold_status = 'converted'", [id]);
+      if (Number(conv.c) > 0) {
+        await conn.execute(
+          `UPDATE tour_departures d JOIN booking_items bi ON bi.departure_id = d.id
+              SET d.seats_reserved = GREATEST(d.seats_reserved - bi.quantity, 0)
+            WHERE bi.booking_id = ?`, [id]);
+      }
+      await conn.execute(
+        "UPDATE seat_holds SET hold_status = 'released' WHERE booking_id = ? AND hold_status IN ('active','converted')", [id]);
+      await releaseCoupon(conn, id);
+    }
+    const mail = {
+      confirmed: "booking_confirmed",
+      cancelled: "booking_cancelled",
+      rejected: "booking_rejected",
+    }[nextStatus];
+    if (mail) await queueBookingEmail(conn, id, mail);
+    return { updated: result.affectedRows === 1, status: nextStatus };
+  });
+}
+
+async function addNote(id, adminId, note, visibility) {
+  const [[booking]] = await pool.execute("SELECT id FROM bookings WHERE id = ?", [id]);
+  if (!booking) return null;
+  const [result] = await pool.execute("INSERT INTO booking_notes (booking_id, admin_user_id, note, visibility) VALUES (?, ?, ?, ?)", [id, adminId, note, visibility]);
+  const [[created]] = await pool.execute("SELECT id, booking_id, admin_user_id, note, visibility, created_at FROM booking_notes WHERE id = ?", [result.insertId]);
+  return created;
+}
+
+async function summary() {
+  const [[c]] = await pool.execute(
+    `SELECT
+       COALESCE(SUM(created_at >= UTC_DATE()), 0) AS today,
+       COALESCE(SUM(created_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY), 0) AS last_7_days,
+       COALESCE(SUM(booking_status = 'pending_review'), 0) AS pending_review,
+       COALESCE(SUM(booking_status = 'awaiting_payment'), 0) AS awaiting_payment,
+       COALESCE(SUM(user_id IS NULL AND created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY), 0) AS guest_30d,
+       COALESCE(SUM(user_id IS NOT NULL AND created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY), 0) AS member_30d
+     FROM bookings`);
+  const [discounts] = await pool.execute(
+    `SELECT currency_code, SUM(discount_amount) AS amount FROM bookings
+      WHERE created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY
+        AND booking_status NOT IN ('rejected','cancelled','expired')
+      GROUP BY currency_code HAVING SUM(discount_amount) > 0`);
+  const [latest] = await pool.execute(`${LIST_SELECT} ORDER BY b.created_at DESC, b.id DESC LIMIT 10`);
+  const [needsAction] = await pool.execute(
+    `${LIST_SELECT} WHERE b.booking_status = 'pending_review' ORDER BY b.created_at ASC, b.id ASC LIMIT 8`);
+  return {
+    counts: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, Number(v)])),
+    discounts30d: discounts.map((d) => ({ currencyCode: d.currency_code, amount: String(d.amount) })),
+    latest, needsAction,
+  };
+}
+
+module.exports = { list, findById, updateStatus, addNote, summary };
+
+
+===== FILE: backend/src/modules/bookings/admin-booking.routes.js =====
+const express = require("express");
+const authenticate = require("../../middleware/authenticate");
+const authorize = require("../../middleware/authorize");
+const controller = require("./admin-booking.controller");
+const router = express.Router();
+
+router.use(authenticate);
+router.get("/summary", authorize("bookings.read"), controller.summary);
+router.get("/", authorize("bookings.read"), controller.list);
+router.get("/:id", authorize("bookings.read"), controller.get);
+router.patch("/:id/status", authorize("bookings.manage"), controller.changeStatus);
+router.post("/:id/notes", authorize("bookings.manage"), controller.addNote);
+module.exports = router;
+
+
+===== FILE: backend/src/modules/bookings/admin-booking.schema.js =====
+const { z } = require("zod");
+
+const statuses = ["pending_review", "awaiting_payment", "confirmed", "rejected", "cancellation_requested", "cancelled", "completed", "expired"];
+const paymentStatuses = ["not_required", "unpaid", "pending", "paid", "partially_refunded", "refunded", "failed"];
+
+const listQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  q: z.string().trim().max(160).optional(),
+  status: z.enum(statuses).optional(),
+  payment_status: z.enum(paymentStatuses).optional(),
+  date_from: z.string().date().optional(),
+  date_to: z.string().date().optional(),
+  departure_id: z.coerce.number().int().positive().optional(),
+  sort: z.enum(["created_at", "updated_at", "total_amount"]).default("created_at"),
+  order: z.enum(["asc", "desc"]).default("desc"),
+}).refine((v) => !v.date_from || !v.date_to || v.date_from <= v.date_to, { message: "date_from must be on or before date_to" });
+
+const statusBody = z.object({
+  status: z.enum(statuses),
+  note: z.string().trim().max(1000).optional(),
+}).strict();
+
+const noteBody = z.object({
+  note: z.string().trim().min(1).max(5000),
+  visibility: z.enum(["internal", "customer_visible"]).default("internal"),
+}).strict();
+
+module.exports = { listQuery, statusBody, noteBody };
+
+
+===== FILE: backend/src/modules/bookings/admin-booking.service.js =====
+const repository = require("./admin-booking.repository");
+const AppError = require("../../utils/appError");
+
+async function list(query) {
+  const { rows, total } = await repository.list(query);
+  return { items: rows, pagination: { page: query.page, limit: query.limit, total, total_pages: Math.ceil(total / query.limit) } };
+}
+async function get(id) {
+  const booking = await repository.findById(id);
+  if (!booking) throw new AppError(404, "BOOKING_NOT_FOUND", "Booking not found");
+  return booking;
+}
+async function changeStatus(id, body, user) {
+  const permission = body.status === "confirmed" ? "bookings.confirm" : body.status === "rejected" ? "bookings.reject" : "bookings.manage";
+  // Route middleware performs the general bookings.manage check. The additional permission is enforced below if auth exposes permissions.
+  if (Array.isArray(user?.permissions) && !user.permissions.includes(permission) && permission !== "bookings.manage") {
+    throw new AppError(403, "INSUFFICIENT_PERMISSION", "Insufficient permission");
+  }
+  const result = await repository.updateStatus(id, body.status, user?.id, body.note);
+  if (result.notFound) throw new AppError(404, "BOOKING_NOT_FOUND", "Booking not found");
+  if (result.invalidTransition) throw new AppError(409, "INVALID_BOOKING_TRANSITION", `Status transition not allowed: ${result.from} -> ${result.to}`);
+  if (result.paymentRequired) throw new AppError(409, "PAYMENT_REQUIRED", "Booking cannot be confirmed until payment is paid or not_required", { payment_status: result.payment_status });
+  return result;
+}
+async function note(id, body, user) {
+  const adminId = user?.id || user?.userId;
+  if (!adminId) throw new AppError(401, "INVALID_SESSION", "Authenticated user id is missing");
+  const created = await repository.addNote(id, adminId, body.note, body.visibility);
+  if (!created) throw new AppError(404, "BOOKING_NOT_FOUND", "Booking not found");
+  return created;
+}
+async function summary() {
+  return repository.summary();
+}
+module.exports = { list, get, changeStatus, note, summary };
+
+
+===== FILE: backend/src/modules/bookings/booking.controller.js =====
+const service = require("./booking.service");
+function bad(message) { const e = new Error(message); e.statusCode = 400; return e; }
+exports.createBooking = async (req, res, next) => {
+  try {
+    const userId = req.user ? (req.user.id || req.user.user_id) : null; // guests allowed
+    const key = req.get("Idempotency-Key");
+    if (!key || key.length < 8 || key.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(key)) throw bad("Provide a valid Idempotency-Key (8–128 characters)");
+    const departureId = Number(req.body && req.body.departure_id);
+    const quantity = Number(req.body && req.body.quantity);
+    const travelers = req.body && req.body.travelers;
+    const rawAddonIds = req.body?.addon_ids;
+    if (rawAddonIds !== undefined && !Array.isArray(rawAddonIds)) {
+      throw bad("addon_ids must be an array of positive integers");
+    }
+    const addonIds = rawAddonIds === undefined ? [] : [...new Set(rawAddonIds.map((id) => {
+      if (!Number.isSafeInteger(id) || id < 1) {
+        throw bad("addon_ids must contain only positive integers");
+      }
+      return id;
+    }))].sort((a, b) => a - b);
+    const customerName = typeof req.body?.customer_name === "string" ? req.body.customer_name.trim() : "";
+    const customerEmail = typeof req.body?.customer_email === "string" ? req.body.customer_email.trim().toLowerCase() : "";
+    const customerPhone = typeof req.body?.customer_phone === "string" ? req.body.customer_phone.trim() : "";
+    if (req.body?.customer_nationality != null && typeof req.body.customer_nationality !== "string") {
+      throw bad("customer_nationality must be a string");
+    }
+    const customerNationality = typeof req.body?.customer_nationality === "string"
+      ? req.body.customer_nationality.trim() || null
+      : null;
+    if (!Number.isSafeInteger(departureId) || departureId < 1) throw bad("departure_id must be a positive integer");
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 20) throw bad("quantity must be between 1 and 20");
+    if (!customerName || customerName.length > 160) throw bad("customer_name is required and must be at most 160 characters");
+    if (customerEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) throw bad("customer_email must be a valid email address");
+    if (!customerPhone || customerPhone.length > 30) throw bad("customer_phone is required and must be at most 30 characters");
+    if (customerNationality && customerNationality.length > 100) throw bad("customer_nationality must be at most 100 characters");
+    if (!Array.isArray(travelers) || travelers.length !== quantity) throw bad("travelers length must equal quantity");
+    const clean = travelers.map((t, i) => {
+      if (!t || typeof t !== "object") throw bad(`Traveler ${i + 1} is invalid`);
+      const traveler_name = typeof t.traveler_name === "string" ? t.traveler_name.trim() : "";
+      const traveler_type = t.traveler_type || "adult";
+      const nationality = t.nationality == null || t.nationality === "" ? null : String(t.nationality).trim();
+      if (!traveler_name || traveler_name.length > 160) throw bad(`Traveler ${i + 1} has invalid traveler_name`);
+      if (!["adult", "child", "infant"].includes(traveler_type)) throw bad(`Traveler ${i + 1} has invalid traveler_type`);
+      if (nationality && nationality.length > 100) throw bad(`Traveler ${i + 1} nationality must be at most 100 characters`);
+      return { traveler_name, traveler_type, nationality };
+    });
+    const result = await service.createBooking({
+      userId: userId ? Number(userId) : null,
+      idempotencyKey: key,
+      departureId,
+      quantity,
+      addonIds,
+      customerName,
+      customerEmail,
+      customerPhone,
+      customerNationality,
+      travelers: clean
+    });
+    res.status(result.replayed ? 200 : 201).json({ success: true, ...result });
+  } catch (e) { next(e); }
+};
+
+
+===== FILE: backend/src/modules/bookings/booking.routes.js =====
+const express = require("express");
+const controller = require("./booking.controller");
+const optionalAuthenticate = require("../../middleware/optionalAuthenticate");
+const { bookingCreate } = require("../../middleware/apiRateLimit");
+const router = express.Router();
+router.post("/", bookingCreate, optionalAuthenticate, controller.createBooking);
+module.exports = router;
+
+
+===== FILE: backend/src/modules/bookings/booking.service.js =====
+const crypto = require("crypto");
+const db = require("../../config/db");
+const { queueBookingEmail } = require("../notifications/booking-events");
+
+function holdMinutes() {
+  const n = Number.parseInt(process.env.BOOKING_HOLD_MINUTES, 10);
+  return Number.isInteger(n) ? Math.min(60, Math.max(5, n)) : 15;
+}
+
+function guestHoldMinutes() {
+  const n = Number.parseInt(process.env.GUEST_BOOKING_HOLD_MINUTES, 10);
+  return Number.isInteger(n) ? Math.min(10080, Math.max(60, n)) : 1440; // default 24h
+}
+
+function appError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function bookingRef() {
+  return `BB-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+}
+
+function payloadHash(payload) {
+  const hashPayload = {
+    departure_id: payload.departureId,
+    quantity: payload.quantity,
+    customer_name: payload.customerName,
+    customer_email: payload.customerEmail,
+    customer_phone: payload.customerPhone,
+    customer_nationality: payload.customerNationality || null,
+    travelers: payload.travelers
+  };
+  if (payload.addonIds?.length) hashPayload.addon_ids = payload.addonIds;
+  return crypto.createHash("sha256").update(JSON.stringify(hashPayload)).digest("hex");
+}
+
+async function memberDiscountPercent(conn) {
+  const [rows] = await conn.query(
+    "SELECT setting_value FROM admin_settings WHERE setting_key = 'member_discount_percent' LIMIT 1");
+  if (!rows.length) return 5;
+  try {
+    const v = JSON.parse(rows[0].setting_value);
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 5;
+  } catch { return 5; }
+}
+
+const BOOKING_FIELDS = `id, booking_reference, booking_status, payment_status,
+  customer_name, customer_email, customer_phone, customer_nationality,
+  currency_code, subtotal, discount_amount, member_discount_amount,
+  total_amount, expires_at, created_at`;
+
+async function createBooking(payload) {
+  const hash = payloadHash(payload);
+  const connection = await db.pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const guest = !payload.userId;
+    const ownerSql = guest ? "user_id IS NULL" : "user_id = ?";
+    const ownerParams = guest ? [] : [payload.userId];
+
+    const [prior] = await connection.query(
+      `SELECT request_hash, booking_id FROM booking_idempotency_keys
+        WHERE ${ownerSql} AND idempotency_key = ? LIMIT 1 FOR UPDATE`,
+      [...ownerParams, payload.idempotencyKey]
+    );
+    if (prior.length) {
+      if (prior[0].request_hash !== hash) {
+        throw appError(409, "Idempotency-Key used with a different request");
+      }
+      if (!prior[0].booking_id) {
+        throw appError(409, "Request is still processing; retry shortly");
+      }
+
+      const [old] = await connection.query(
+        `SELECT ${BOOKING_FIELDS} FROM bookings
+          WHERE id = ? AND ${ownerSql} LIMIT 1`,
+        [prior[0].booking_id, ...ownerParams]
+      );
+      if (!old.length) throw appError(409, "Original booking is unavailable");
+      await connection.commit();
+      return { replayed: true, booking: old[0] };
+    }
+
+    await connection.query(
+      `INSERT INTO booking_idempotency_keys (user_id, idempotency_key, request_hash)
+       VALUES (?, ?, ?)`,
+      [payload.userId || null, payload.idempotencyKey, hash]
+    );
+
+    const [departures] = await connection.query(
+      `SELECT d.id, d.tour_id, d.starts_at, d.seat_capacity, d.seats_reserved,
+              d.price_override, d.status AS departure_status,
+              t.title, t.destination, t.duration_days, t.base_price,
+              t.currency_code, t.status AS tour_status, t.deleted_at
+         FROM tour_departures d
+         JOIN tours t ON t.id = d.tour_id
+        WHERE d.id = ? LIMIT 1 FOR UPDATE`,
+      [payload.departureId]
+    );
+    if (!departures.length) throw appError(404, "Departure not found");
+    const departure = departures[0];
+    if (departure.tour_status !== "published" || departure.deleted_at) {
+      throw appError(409, "Tour is unavailable");
+    }
+    if (departure.departure_status !== "scheduled") {
+      throw appError(409, "Departure is not open for booking");
+    }
+    if (new Date(departure.starts_at).getTime() <= Date.now()) {
+      throw appError(409, "Departure has already started");
+    }
+
+    await connection.query(
+      `UPDATE seat_holds SET hold_status = 'expired'
+        WHERE departure_id = ? AND hold_status = 'active'
+          AND expires_at <= UTC_TIMESTAMP()`,
+      [payload.departureId]
+    );
+    const [holds] = await connection.query(
+      `SELECT COALESCE(SUM(quantity), 0) AS held FROM seat_holds
+        WHERE departure_id = ? AND hold_status = 'active'
+          AND expires_at > UTC_TIMESTAMP()`,
+      [payload.departureId]
+    );
+    const available = Number(departure.seat_capacity)
+      - Number(departure.seats_reserved)
+      - Number(holds[0].held || 0);
+    if (available < payload.quantity) throw appError(409, "Not enough seats available");
+
+    const unitPrice = Number(
+      departure.price_override === null ? departure.base_price : departure.price_override
+    );
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      throw appError(500, "Invalid departure price");
+    }
+    const tourSubtotalCents = Math.round(unitPrice * 100 * payload.quantity);
+    const addonIds = payload.addonIds || [];
+    let addonsTotalCents = 0;
+    let selectedAddons = [];
+    if (addonIds.length) {
+      const placeholders = addonIds.map(() => "?").join(",");
+      const [addonRows] = await connection.query(
+        `SELECT id, name, description, price, pricing_mode
+           FROM tour_addons
+          WHERE tour_id = ? AND is_active = 1 AND id IN (${placeholders})
+          ORDER BY id FOR UPDATE`,
+        [departure.tour_id, ...addonIds]
+      );
+      if (addonRows.length !== addonIds.length) {
+        throw appError(400, "One or more selected add-ons are unavailable for this tour");
+      }
+      selectedAddons = addonRows.map((addon) => {
+        const priceCents = Math.round(Number(addon.price) * 100);
+        if (!Number.isSafeInteger(priceCents) || priceCents < 0) {
+          throw appError(500, "Invalid tour add-on price");
+        }
+        const quantity = addon.pricing_mode === "per_person" ? payload.quantity : 1;
+        const lineTotalCents = priceCents * quantity;
+        addonsTotalCents += lineTotalCents;
+        return { ...addon, quantity, priceCents, lineTotalCents };
+      });
+    }
+    const subtotalCents = tourSubtotalCents + addonsTotalCents;
+    const pct = payload.userId ? await memberDiscountPercent(connection) : 0; // members only
+    const discountCents = Math.round((subtotalCents * pct) / 100);
+    const subtotal = subtotalCents / 100;
+    const discount = discountCents / 100;
+    const total = (subtotalCents - discountCents) / 100;
+    const minutes = payload.userId ? holdMinutes() : guestHoldMinutes();
+    const currency = departure.currency_code || "BDT";
+
+    const [bookingResult] = await connection.query(
+      `INSERT INTO bookings
+        (user_id, booking_reference, booking_status, payment_status,
+         customer_name, customer_email, customer_phone, customer_nationality,
+         currency_code, subtotal, discount_amount, member_discount_amount, total_amount,
+         expires_at, created_at, updated_at)
+       VALUES (?, ?, 'pending_review', 'unpaid', ?, ?, ?, ?, ?, ?, ?, ?, ?,
+         DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE), UTC_TIMESTAMP(), UTC_TIMESTAMP())`,
+      [
+        payload.userId || null,
+        bookingRef(),
+        payload.customerName,
+        payload.customerEmail,
+        payload.customerPhone,
+        payload.customerNationality || null,
+        currency,
+        subtotal,
+        discount,
+        discount,
+        total,
+        minutes
+      ]
+    );
+    const bookingId = bookingResult.insertId;
+    const tourSnapshot = JSON.stringify({
+      title: departure.title,
+      destination: departure.destination,
+      duration_days: departure.duration_days,
+      currency_code: currency
+    });
+
+    const [itemResult] = await connection.query(
+      `INSERT INTO booking_items
+        (booking_id, tour_id, departure_id, quantity, unit_price, line_total, tour_snapshot)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [bookingId, departure.tour_id, payload.departureId, payload.quantity, unitPrice, tourSubtotalCents / 100, tourSnapshot]
+    );
+    for (const addon of selectedAddons) {
+      await connection.query(
+        `INSERT INTO booking_addons
+          (booking_item_id, addon_id, quantity, unit_price, line_total, addon_snapshot)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          itemResult.insertId,
+          addon.id,
+          addon.quantity,
+          addon.priceCents / 100,
+          addon.lineTotalCents / 100,
+          JSON.stringify({
+            name: addon.name,
+            description: addon.description,
+            pricing_mode: addon.pricing_mode,
+            price: addon.priceCents / 100,
+          }),
+        ]
+      );
+    }
+
+    for (const traveler of payload.travelers) {
+      await connection.query(
+        `INSERT INTO booking_travelers
+          (booking_id, traveler_name, traveler_type, nationality)
+         VALUES (?, ?, ?, ?)`,
+        [bookingId, traveler.traveler_name, traveler.traveler_type, traveler.nationality]
+      );
+    }
+
+    const [holdResult] = await connection.query(
+      `INSERT INTO seat_holds (booking_id, departure_id, quantity, expires_at, hold_status, created_at)
+       VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE), 'active', UTC_TIMESTAMP())`,
+      [bookingId, payload.departureId, payload.quantity, minutes]
+    );
+    await connection.query(
+      `INSERT INTO booking_status_history
+        (booking_id, previous_status, new_status, changed_by_user_id, note)
+       VALUES (?, NULL, 'pending_review', ?, 'Booking created')`,
+      [bookingId, payload.userId]
+    );
+    await queueBookingEmail(connection, bookingId, "booking_received", { hold_minutes: String(minutes) });
+    await connection.query(
+      `UPDATE booking_idempotency_keys SET booking_id = ?
+        WHERE ${ownerSql} AND idempotency_key = ?`,
+      [bookingId, ...ownerParams, payload.idempotencyKey]
+    );
+
+    const [created] = await connection.query(
+      `SELECT ${BOOKING_FIELDS} FROM bookings WHERE id = ?`,
+      [bookingId]
+    );
+    await connection.commit();
+
+    return {
+      replayed: false,
+      booking: created[0],
+      hold: { id: holdResult.insertId, expires_at: created[0].expires_at }
+    };
+  } catch (error) {
+    try {
+      await connection.rollback();
+    } catch (_) {
+      // Preserve the original transaction error.
+    }
+    if (error && error.code === "ER_DUP_ENTRY") {
+      throw appError(409, "Idempotency-Key conflict; retry using the same key");
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+async function expireHoldsBatch(batchSize = 500) {
+  const connection = await db.pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.query(
+      `SELECT h.id, h.booking_id
+         FROM seat_holds h JOIN bookings b ON b.id = h.booking_id
+        WHERE h.hold_status = 'active' AND h.expires_at <= UTC_TIMESTAMP()
+          AND b.payment_status <> 'paid'
+          AND (b.payment_status <> 'pending' OR b.updated_at < UTC_TIMESTAMP() - INTERVAL 45 MINUTE)
+        ORDER BY h.expires_at, h.id LIMIT ? FOR UPDATE`,
+      [Math.min(2000, Math.max(1, Number(batchSize) || 500))]
+    );
+    if (!rows.length) {
+      await connection.commit();
+      return { holds_expired: 0, bookings_expired: 0 };
+    }
+
+    const ids = rows.map((row) => row.id);
+    const bookingIds = [...new Set(rows.map((row) => row.booking_id).filter(Boolean))];
+    await connection.query(
+      `UPDATE seat_holds SET hold_status = 'expired'
+        WHERE hold_status = 'active' AND id IN (${ids.map(() => "?").join(",")})`,
+      ids
+    );
+
+    let bookingsExpired = 0;
+    if (bookingIds.length) {
+      const [result] = await connection.query(
+        `UPDATE bookings SET booking_status = 'expired', updated_at = UTC_TIMESTAMP()
+          WHERE id IN (${bookingIds.map(() => "?").join(",")})
+            AND booking_status IN ('pending_review', 'awaiting_payment')
+            AND expires_at <= UTC_TIMESTAMP()`,
+        bookingIds
+      );
+      bookingsExpired = result.affectedRows || 0;
+    }
+
+    await connection.commit();
+    return { holds_expired: ids.length, bookings_expired: bookingsExpired };
+  } catch (error) {
+    try {
+      await connection.rollback();
+    } catch (_) {
+      // Preserve the original transaction error.
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+module.exports = { createBooking, expireHoldsBatch };
+
+
+===== FILE: backend/src/modules/bookings/seat-hold-worker.js =====
+const service = require("./booking.service");
+let timer = null, running = false;
+async function tick() {
+  if (running) return;
+  running = true;
+  try { await service.expireHoldsBatch(500); }
+  catch (e) { console.error("[seat-hold-worker] cleanup failed:", e.message); }
+  finally { running = false; }
+}
+function start() {
+  if (timer) return;
+  const n = Number.parseInt(process.env.SEAT_HOLD_CLEANUP_INTERVAL_MS, 10);
+  timer = setInterval(tick, Number.isInteger(n) ? Math.max(15000,n) : 60000);
+  if (timer.unref) timer.unref();
+}
+function stop() { if (timer) clearInterval(timer); timer = null; }
+module.exports = { start, stop, tick };
+
+
+===== FILE: backend/src/modules/cancellations/cancellation.routes.js =====
+const express = require("express");
+const { z } = require("zod");
+const validate = require("../../middleware/validate");
+const asyncHandler = require("../../utils/asynchandler");
+const { sendSuccess } = require("../../utils/response");
+const { paginationQuery } = require("../../validators/common");
+const service = require("./cancellation.service");
+
+const router = express.Router();
+const listQuery = paginationQuery.extend({ status: z.enum(["pending", "approved", "rejected", "withdrawn"]).optional() }).strict();
+const idParams = z.object({ id: z.coerce.number().int().positive() });
+const body = z.object({ note: z.string().trim().max(1000).optional() }).strict();
+
+router.get("/", validate({ query: listQuery }), asyncHandler(async (req, res) => {
+  const { page, limit, status } = req.validated.query;
+  const r = await service.list({ page, limit, status });
+  return sendSuccess(res, r.rows, { meta: { page, limit, total: r.total, totalPages: Math.max(1, Math.ceil(r.total / limit)) } });
+}));
+for (const action of ["approve", "reject"]) {
+  router.post(`/:id/${action}`, validate({ params: idParams, body }), asyncHandler(async (req, res) =>
+    sendSuccess(res, await service.decide(req.validated.params.id, req.auth.userId, action, req.validated.body.note))));
+}
+module.exports = router;
+
+===== FILE: backend/src/modules/cancellations/cancellation.service.js =====
+const { pool } = require("../../config/db");
+const AppError = require("../../utils/appError");
+const bookingRepo = require("../bookings/admin-booking.repository");
+
+const parse = (v) => { try { return typeof v === "string" ? JSON.parse(v) : v || {}; } catch { return {}; } };
+
+async function list({ status, page, limit }) {
+  const where = [
+    "r.request_type = 'other'",
+    "JSON_UNQUOTE(JSON_EXTRACT(r.request_details, '$.category')) = 'cancellation_request'",
+  ];
+  const params = [];
+  if (status) { where.push("r.status = ?"); params.push(status); }
+  const clause = `WHERE ${where.join(" AND ")}`;
+  const [[c]] = await pool.execute(`SELECT COUNT(*) AS total FROM booking_change_requests r ${clause}`, params);
+  const [rows] = await pool.execute(
+    `SELECT r.id, r.booking_id, r.status, r.request_details, r.created_at, r.reviewed_at,
+            b.booking_reference, b.customer_name, b.customer_email, b.booking_status,
+            b.payment_status, b.currency_code, b.total_amount
+       FROM booking_change_requests r JOIN bookings b ON b.id = r.booking_id
+       ${clause}
+      ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT ? OFFSET ?`,
+    [...params, limit, (page - 1) * limit]);
+  return {
+    rows: rows.map(({ request_details, ...x }) => ({ ...x, reason: parse(request_details).reason || "" })),
+    total: Number(c.total),
+  };
+}
+
+async function decide(id, adminId, action, note) {
+  const [[r]] = await pool.execute("SELECT id, booking_id, status FROM booking_change_requests WHERE id = ?", [id]);
+  if (!r) throw AppError.notFound("Request not found.", "REQUEST_NOT_FOUND");
+  if (r.status !== "pending") throw AppError.conflict("This request has already been decided.");
+
+  if (action === "approve") {
+    const res = await bookingRepo.updateStatus(r.booking_id, "cancelled", adminId, note || "Cancellation request approved");
+    if (res.notFound) throw AppError.notFound("Booking not found.", "BOOKING_NOT_FOUND");
+    if (res.invalidTransition) throw AppError.conflict(`This booking cannot be cancelled from "${res.from}".`);
+  }
+  const [u] = await pool.execute(
+    "UPDATE booking_change_requests SET status = ?, reviewed_by = ?, reviewed_at = UTC_TIMESTAMP() WHERE id = ? AND status = 'pending'",
+    [action === "approve" ? "approved" : "rejected", adminId, id]);
+  if (!u.affectedRows) throw AppError.conflict("This request has already been decided.");
+  if (action === "reject" && note) {
+    await pool.execute(
+      "INSERT INTO booking_notes (booking_id, admin_user_id, note, visibility) VALUES (?, ?, ?, 'customer_visible')",
+      [r.booking_id, adminId, note]);
+  }
+  return { id, status: action === "approve" ? "approved" : "rejected" };
+}
+
+module.exports = { list, decide };
+
+===== FILE: backend/src/modules/coupons/coupon.admin.routes.js =====
+const express = require("express");
+const asyncHandler = require("../../utils/asynchandler");
+const controller = require("./coupon.controller");
+const router = express.Router();
+
+router.get("/", asyncHandler(controller.adminList));
+router.get("/:id", asyncHandler(controller.get));
+router.post("/", asyncHandler(controller.create));
+router.patch("/:id", asyncHandler(controller.update));
+router.delete("/:id", asyncHandler(controller.remove));
+module.exports = router;
+
+
+===== FILE: backend/src/modules/coupons/coupon.controller.js =====
+const service = require("./coupon.service");
+const { id, code, create, update, pagination } = require("./coupon.validation");
+const { sendSuccess } = require("../../utils/response");
+function userId(req) {
+  const value = req.user && req.user.id;
+  if (!Number.isSafeInteger(Number(value)) || Number(value) < 1) {
+    const e = new Error("Authenticated user identity is required"); e.statusCode = 401; throw e;
+  }
+  return Number(value);
+}
+module.exports = {
+  adminList: async (req, res) => {
+    const status = req.query.status || undefined;
+    if (status && !["active", "inactive"].includes(status)) { const e = new Error("status must be active or inactive"); e.statusCode = 400; throw e; }
+    const q = String(req.query.q || "").trim().slice(0, 100);
+    const result = await service.list({ ...pagination(req.query), q, status });
+    return sendSuccess(res, result.items, { meta: result.pagination });
+  },
+  get: async (req, res) => sendSuccess(res, await service.get(id(req.params.id))),
+  create: async (req, res) => sendSuccess(res, await service.create(create(req.body)), 201),
+  update: async (req, res) => sendSuccess(res, await service.update(id(req.params.id), update(req.body))),
+  remove: async (req, res) => {
+    await service.remove(id(req.params.id));
+    return sendSuccess(res, { message: "Coupon deleted" });
+  },
+  validate: async (req, res) => {
+    if (!req.body || req.body.bookingId === undefined) { const e = new Error("bookingId is required"); e.statusCode = 400; throw e; }
+    return sendSuccess(res, await service.validateForBooking({
+      code: code(req.body.code), bookingId: id(req.body.bookingId, "bookingId"), userId: userId(req)
+    }));
+  }
+};
+
+
+===== FILE: backend/src/modules/coupons/coupon.customer.routes.js =====
+const express = require("express");
+const asyncHandler = require("../../utils/asynchandler");
+const controller = require("./coupon.controller");
+const router = express.Router();
+
+router.post("/validate", asyncHandler(controller.validate));
+module.exports = router;
+
+
+===== FILE: backend/src/modules/coupons/coupon.service.js =====
+const { pool, withTransaction } = require("../../config/db");
+function err(message, statusCode) { const e = new Error(message); e.statusCode = statusCode; throw e; }
+const columns = `id, code, name, description, discount_type AS discountType,
+  discount_value AS discountValue, min_order_amount AS minOrderAmount,
+  max_discount_amount AS maxDiscountAmount, usage_limit AS usageLimit,
+  per_user_limit AS perUserLimit, starts_at AS startsAt, ends_at AS endsAt,
+  status, created_at AS createdAt, updated_at AS updatedAt`;
+
+async function list({ q, status, limit, offset }) {
+  const where = [], params = [];
+  if (q) { where.push("(code LIKE ? OR name LIKE ?)"); params.push(`%${q}%`, `%${q}%`); }
+  if (status) { where.push("status = ?"); params.push(status); }
+  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const [[count]] = await pool.execute(`SELECT COUNT(*) AS total FROM coupons ${clause}`, params);
+  const [rows] = await pool.execute(
+    `SELECT ${columns} FROM coupons ${clause} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
+  );
+  return { items: rows, pagination: { total: Number(count.total), limit, page: Math.floor(offset / limit) + 1,
+    totalPages: Math.max(1, Math.ceil(Number(count.total) / limit)) } };
+}
+async function get(id) {
+  const [[row]] = await pool.execute(`SELECT ${columns} FROM coupons WHERE id = ?`, [id]);
+  if (!row) err("Coupon not found", 404);
+  return row;
+}
+async function create(data) {
+  const [r] = await pool.execute(
+    `INSERT INTO coupons
+      (code, name, description, discount_type, discount_value, min_order_amount,
+       max_discount_amount, usage_limit, per_user_limit, starts_at, ends_at, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [data.code, data.name, data.description, data.discountType, data.discountValue,
+     data.minOrderAmount, data.maxDiscountAmount, data.usageLimit, data.perUserLimit,
+     data.startsAt, data.endsAt, data.status]
+  );
+  return get(r.insertId);
+}
+async function update(id, data) {
+  await get(id);
+  const map = {
+    name: "name", description: "description", discountType: "discount_type",
+    discountValue: "discount_value", minOrderAmount: "min_order_amount",
+    maxDiscountAmount: "max_discount_amount", usageLimit: "usage_limit",
+    perUserLimit: "per_user_limit", startsAt: "starts_at", endsAt: "ends_at", status: "status"
+  };
+  const sets = [], values = [];
+  for (const [key, column] of Object.entries(map)) {
+    if (data[key] !== undefined) { sets.push(`${column} = ?`); values.push(data[key]); }
+  }
+  if (sets.length) await pool.execute(`UPDATE coupons SET ${sets.join(", ")} WHERE id = ?`, [...values, id]);
+  return get(id);
+}
+async function remove(id) {
+  await get(id);
+  const [[used]] = await pool.execute("SELECT COUNT(*) AS total FROM coupon_redemptions WHERE coupon_id = ?", [id]);
+  if (Number(used.total) > 0) err("Coupon has redemption history; deactivate it instead", 409);
+  await pool.execute("DELETE FROM coupons WHERE id = ?", [id]);
+}
+async function validateForBooking({ code, bookingId, userId }) {
+  return withTransaction(async (conn) => {
+    const [[booking]] = await conn.execute(
+      `SELECT id, user_id, subtotal, discount_amount, member_discount_amount,
+              tax_amount, total_amount, booking_status
+       FROM bookings WHERE id = ? FOR UPDATE`, [bookingId]);
+    if (!booking) err("Booking not found", 404);
+    if (booking.user_id !== userId) err("Booking does not belong to the authenticated customer", 403);
+    if (!["pending_review", "awaiting_payment"].includes(booking.booking_status)) {
+      err("Coupon can only be checked for a booking awaiting review or payment", 409);
+    }
+    const [[coupon]] = await conn.execute(
+      "SELECT * FROM coupons WHERE code = ? FOR UPDATE", [code]);
+    if (!coupon || coupon.status !== "active") err("Coupon is invalid or inactive", 404);
+    const now = new Date();
+    if (coupon.starts_at && new Date(coupon.starts_at) > now) err("Coupon is not active yet", 409);
+    if (coupon.ends_at && new Date(coupon.ends_at) < now) err("Coupon has expired", 409);
+    if (Number(booking.subtotal) < Number(coupon.min_order_amount)) err("Booking subtotal does not meet the coupon minimum", 409);
+    const [[usage]] = await conn.execute(
+      `SELECT COUNT(*) AS total FROM coupon_redemptions
+       WHERE coupon_id = ? AND status IN ('reserved','redeemed')`, [coupon.id]);
+    if (coupon.usage_limit !== null && Number(usage.total) >= Number(coupon.usage_limit)) err("Coupon usage limit has been reached", 409);
+    const [[userUsage]] = await conn.execute(
+      `SELECT COUNT(*) AS total FROM coupon_redemptions
+       WHERE coupon_id = ? AND user_id = ? AND status IN ('reserved','redeemed')`, [coupon.id, userId]);
+    if (Number(userUsage.total) >= Number(coupon.per_user_limit)) err("Your coupon usage limit has been reached", 409);
+    const base = Number(booking.subtotal) - Number(booking.member_discount_amount);
+    let discount = coupon.discount_type === "percentage"
+      ? base * Number(coupon.discount_value) / 100
+      : Number(coupon.discount_value);
+    if (coupon.max_discount_amount !== null) discount = Math.min(discount, Number(coupon.max_discount_amount));
+    discount = Math.min(discount, base);
+    discount = Math.round((discount + Number.EPSILON) * 100) / 100;
+    const totalAfterDiscount = Math.max(0, base - discount + Number(booking.tax_amount));
+    return {
+      valid: true, coupon: { id: coupon.id, code: coupon.code, discountType: coupon.discount_type },
+      subtotal: booking.subtotal, discountAmount: discount.toFixed(2),
+      taxAmount: booking.tax_amount, estimatedTotal: totalAfterDiscount.toFixed(2),
+      note: "Validation preview only. This endpoint does not apply the coupon or reserve usage."
+    };
+  });
+}
+module.exports = { list, get, create, update, remove, validateForBooking };
+
+
+===== FILE: backend/src/modules/coupons/coupon.validation.js =====
+function fail(message, statusCode = 400) { const e = new Error(message); e.statusCode = statusCode; throw e; }
+function id(value, field = "id") {
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n < 1) fail(`${field} must be a positive integer`);
+  return n;
+}
+function money(value, field, nullable = false) {
+  if (nullable && (value === null || value === undefined || value === "")) return null;
+  if (!/^\d{1,10}(?:\.\d{1,2})?$/.test(String(value))) fail(`${field} must be a non-negative amount with up to 2 decimals`);
+  return String(value);
+}
+function code(value) {
+  if (typeof value !== "string") fail("code is required");
+  const normalized = value.trim().toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9_-]{2,39}$/.test(normalized)) fail("code must be 3-40 characters using letters, numbers, _ or -");
+  return normalized;
+}
+function create(body) {
+  if (typeof body.name !== "string" || !body.name.trim() || body.name.trim().length > 160) fail("name is required (max 160 characters)");
+  const discountType = body.discountType;
+  if (!["percentage", "fixed"].includes(discountType)) fail("discountType must be percentage or fixed");
+  const discountValue = money(body.discountValue, "discountValue");
+  if (Number(discountValue) <= 0) fail("discountValue must be greater than zero");
+  if (discountType === "percentage" && Number(discountValue) > 100) fail("percentage discount cannot exceed 100");
+  const usageLimit = body.usageLimit == null || body.usageLimit === "" ? null : id(body.usageLimit, "usageLimit");
+  const perUserLimit = body.perUserLimit == null || body.perUserLimit === "" ? 1 : id(body.perUserLimit, "perUserLimit");
+  const status = body.status || "active";
+  if (!["active", "inactive"].includes(status)) fail("status must be active or inactive");
+  const startsAt = body.startsAt || null, endsAt = body.endsAt || null;
+  if (startsAt && Number.isNaN(Date.parse(startsAt))) fail("startsAt must be a valid date/time");
+  if (endsAt && Number.isNaN(Date.parse(endsAt))) fail("endsAt must be a valid date/time");
+  if (startsAt && endsAt && new Date(endsAt) <= new Date(startsAt)) fail("endsAt must be later than startsAt");
+  return {
+    code: code(body.code), name: body.name.trim(), description: body.description || null,
+    discountType, discountValue, minOrderAmount: money(body.minOrderAmount ?? "0", "minOrderAmount"),
+    maxDiscountAmount: money(body.maxDiscountAmount, "maxDiscountAmount", true),
+    usageLimit, perUserLimit, startsAt, endsAt, status
+  };
+}
+function update(body) {
+  const out = {};
+  if (body.name !== undefined) {
+    if (typeof body.name !== "string" || !body.name.trim() || body.name.trim().length > 160) fail("name must be 1-160 characters");
+    out.name = body.name.trim();
+  }
+  if (body.description !== undefined) out.description = body.description;
+  if (body.discountType !== undefined) {
+    if (!["percentage", "fixed"].includes(body.discountType)) fail("discountType must be percentage or fixed");
+    out.discountType = body.discountType;
+  }
+  if (body.discountValue !== undefined) out.discountValue = money(body.discountValue, "discountValue");
+  if (body.minOrderAmount !== undefined) out.minOrderAmount = money(body.minOrderAmount, "minOrderAmount");
+  if (body.maxDiscountAmount !== undefined) out.maxDiscountAmount = money(body.maxDiscountAmount, "maxDiscountAmount", true);
+  if (body.usageLimit !== undefined) out.usageLimit = body.usageLimit === null ? null : id(body.usageLimit, "usageLimit");
+  if (body.perUserLimit !== undefined) out.perUserLimit = id(body.perUserLimit, "perUserLimit");
+  if (body.startsAt !== undefined) out.startsAt = body.startsAt;
+  if (body.endsAt !== undefined) out.endsAt = body.endsAt;
+  if (body.status !== undefined) {
+    if (!["active", "inactive"].includes(body.status)) fail("status must be active or inactive");
+    out.status = body.status;
+  }
+  if (!Object.keys(out).length) fail("No supported fields supplied");
+  return out;
+}
+function pagination(query) {
+  const page = query.page === undefined ? 1 : Number(query.page);
+  const limit = query.limit === undefined ? 20 : Number(query.limit);
+  if (!Number.isSafeInteger(page) || page < 1) fail("page must be a positive integer");
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) fail("limit must be between 1 and 50");
+  return { page, limit, offset: (page - 1) * limit };
+}
+module.exports = { id, code, create, update, pagination };
+
+
+===== FILE: backend/src/modules/coupons/INSTALL_MOUNT.txt =====
+PHASE 5.8 QUICK INSTALL
+
+1) Back up MariaDB.
+2) Execute migrations/0058_coupons_discount_management.sql.
+3) Copy src/modules/coupons into backend/src/modules/.
+4) Mount admin routes behind staff auth + settings.manage:
+   router.use(
+     "/admin/coupons",
+     YOUR_STAFF_AUTH_MIDDLEWARE,
+     YOUR_PERMISSION_MIDDLEWARE("settings.manage"),
+     require("../modules/coupons/coupon.admin.routes")
+   );
+5) Mount customer validation behind real customer auth:
+   router.use(
+     "/coupons",
+     YOUR_CUSTOMER_AUTH_MIDDLEWARE,
+     require("../modules/coupons/coupon.customer.routes")
+   );
+6) Both auth middlewares must set req.user.id. Replace placeholders with actual middleware.
+7) Restart backend.
+
+Test:
+GET  /api/admin/coupons
+POST /api/admin/coupons
+POST /api/coupons/validate
+
+Validation endpoint is preview only; final checkout redemption integration is not included in this phase.
+
+
+===== FILE: backend/src/modules/customer-bookings/customer-booking.controller.js =====
+const service = require("./customer-booking.service");
+
+function customerId(req, res) {
+  const id = req.user && req.user.id;
+  if (!id || !Number.isSafeInteger(Number(id)) || Number(id) < 1) {
+    res.status(401).json({ success: false, message: "Authentication required." });
+    return null;
+  }
+  return Number(id);
+}
+
+function positiveId(value) {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+function sendError(res, error) {
+  const status = error.statusCode || 500;
+  if (status >= 500) console.error("Customer booking error:", error);
+  return res.status(status).json({
+    success: false,
+    message: status >= 500 ? "An unexpected error occurred." : error.message,
+  });
+}
+
+async function listBookings(req, res) {
+  const userId = customerId(req, res);
+  if (!userId) return;
+  try {
+    const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
+    const limit = Math.max(1, Math.min(50, Number.parseInt(req.query.limit, 10) || 10));
+    const result = await service.listBookings(userId, { page, limit });
+    return res.json({ success: true, data: result });
+  } catch (error) { return sendError(res, error); }
+}
+
+async function getBooking(req, res) {
+  const userId = customerId(req, res);
+  if (!userId) return;
+  const bookingId = positiveId(req.params.bookingId);
+  if (!bookingId) return res.status(400).json({ success: false, message: "Invalid booking ID." });
+  try {
+    const data = await service.getBooking(userId, bookingId);
+    return res.json({ success: true, data });
+  } catch (error) { return sendError(res, error); }
+}
+
+async function replaceTravelers(req, res) {
+  const userId = customerId(req, res);
+  if (!userId) return;
+  const bookingId = positiveId(req.params.bookingId);
+  if (!bookingId) return res.status(400).json({ success: false, message: "Invalid booking ID." });
+  try {
+    const data = await service.replaceTravelers(userId, bookingId, req.body || {});
+    return res.json({ success: true, data });
+  } catch (error) { return sendError(res, error); }
+}
+
+async function updateSpecialRequests(req, res) {
+  const userId = customerId(req, res);
+  if (!userId) return;
+  const bookingId = positiveId(req.params.bookingId);
+  if (!bookingId) return res.status(400).json({ success: false, message: "Invalid booking ID." });
+  try {
+    const data = await service.updateSpecialRequests(userId, bookingId, req.body || {});
+    return res.json({ success: true, data });
+  } catch (error) { return sendError(res, error); }
+}
+
+async function requestCancellation(req, res) {
+  const userId = customerId(req, res);
+  if (!userId) return;
+  const bookingId = positiveId(req.params.bookingId);
+  if (!bookingId) return res.status(400).json({ success: false, message: "Invalid booking ID." });
+  try {
+    const data = await service.requestCancellation(userId, bookingId, req.body || {});
+    return res.status(201).json({ success: true, data });
+  } catch (error) { return sendError(res, error); }
+}
+
+module.exports = { listBookings, getBooking, replaceTravelers, updateSpecialRequests, requestCancellation };
+
+
+===== FILE: backend/src/modules/customer-bookings/customer-booking.routes.js =====
+const express = require("express");
+const controller = require("./customer-booking.controller");
+
+const router = express.Router();
+
+router.get("/bookings", controller.listBookings);
+router.get("/bookings/:bookingId", controller.getBooking);
+router.put("/bookings/:bookingId/travelers", controller.replaceTravelers);
+router.patch("/bookings/:bookingId/special-requests", controller.updateSpecialRequests);
+router.post("/bookings/:bookingId/cancellation-request", controller.requestCancellation);
+
+module.exports = router;
+
+
+===== FILE: backend/src/modules/customer-bookings/customer-booking.service.js =====
+const { pool, withTransaction } = require("../../config/db");
+
+function httpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+const EDITABLE_STATUSES = ["pending_review", "awaiting_payment"];
+const TRAVELER_TYPES = new Set(["adult", "child", "infant"]);
+
+async function listBookings(userId, { page, limit }) {
+  const offset = (page - 1) * limit;
+  const [[countRow]] = await pool.execute(
+    "SELECT COUNT(*) AS total FROM bookings WHERE user_id = ?",
+    [userId]
+  );
+  const [rows] = await pool.execute(
+    `SELECT b.id, b.booking_reference, b.booking_status, b.payment_status,
+            b.currency_code, b.total_amount, b.created_at,
+            COUNT(DISTINCT bi.id) AS item_count,
+            COALESCE(SUM(bi.quantity), 0) AS traveler_count
+       FROM bookings b
+       LEFT JOIN booking_items bi ON bi.booking_id = b.id
+      WHERE b.user_id = ?
+      GROUP BY b.id
+      ORDER BY b.created_at DESC, b.id DESC
+      LIMIT ? OFFSET ?`,
+    [userId, limit, offset]
+  );
+  return {
+    items: rows,
+    pagination: {
+      page, limit, total: Number(countRow.total),
+      totalPages: Math.ceil(Number(countRow.total) / limit),
+    },
+  };
+}
+
+async function ownedBooking(connection, userId, bookingId, lock = false) {
+  const [rows] = await connection.execute(
+    `SELECT b.* FROM bookings b WHERE b.id = ? AND b.user_id = ? ${lock ? "FOR UPDATE" : ""}`,
+    [bookingId, userId]
+  );
+  if (!rows.length) throw httpError(404, "Booking not found.");
+  return rows[0];
+}
+
+async function getBooking(userId, bookingId) {
+  const booking = await ownedBooking(pool, userId, bookingId);
+  const [items] = await pool.execute(
+    `SELECT bi.id, bi.tour_id, bi.departure_id, bi.quantity, bi.unit_price,
+            bi.line_total, bi.tour_snapshot, td.starts_at, td.ends_at,
+            td.status AS departure_status
+       FROM booking_items bi
+       LEFT JOIN tour_departures td ON td.id = bi.departure_id
+      WHERE bi.booking_id = ? ORDER BY bi.id`,
+    [bookingId]
+  );
+  const [travelers] = await pool.execute(
+    `SELECT id, traveler_name, traveler_type, nationality, created_at
+       FROM booking_travelers WHERE booking_id = ? ORDER BY id`,
+    [bookingId]
+  );
+  const [holds] = await pool.execute(
+    `SELECT id, departure_id, quantity, expires_at, hold_status
+       FROM seat_holds WHERE booking_id = ? AND hold_status = 'active'
+      ORDER BY id`,
+    [bookingId]
+  );
+  const [change_requests] = await pool.execute(
+    `SELECT id, status, request_details, created_at, reviewed_at
+       FROM booking_change_requests WHERE booking_id = ? ORDER BY id DESC`,
+    [bookingId]
+  );
+  const [notes] = await pool.execute(
+    `SELECT id, note, created_at FROM booking_notes
+      WHERE booking_id = ? AND visibility = 'customer_visible' ORDER BY id DESC`,
+    [bookingId]
+  );
+  return { booking, items, travelers, active_seat_holds: holds, change_requests, notes };
+}
+
+async function replaceTravelers(userId, bookingId, body) {
+  if (!Array.isArray(body.travelers) || body.travelers.length < 1 || body.travelers.length > 100) {
+    throw httpError(400, "travelers must be an array containing 1 to 100 traveler records.");
+  }
+  const travelers = body.travelers.map((t) => {
+    if (!t || typeof t.traveler_name !== "string" || !t.traveler_name.trim() || t.traveler_name.trim().length > 160) {
+      throw httpError(400, "Each traveler requires traveler_name (1–160 characters).");
+    }
+    const type = t.traveler_type || "adult";
+    if (!TRAVELER_TYPES.has(type)) throw httpError(400, "traveler_type must be adult, child, or infant.");
+    const nationality = t.nationality == null || t.nationality === "" ? null : String(t.nationality).trim();
+    if (nationality && nationality.length > 100) throw httpError(400, "nationality must be 100 characters or fewer.");
+    return { traveler_name: t.traveler_name.trim(), traveler_type: type, nationality };
+  });
+
+  return withTransaction(async (conn) => {
+    const booking = await ownedBooking(conn, userId, bookingId, true);
+    if (!EDITABLE_STATUSES.includes(booking.booking_status)) {
+      throw httpError(409, "Traveler details can only be changed while the booking is pending review or awaiting payment.");
+    }
+    const [[count]] = await conn.execute(
+      "SELECT COALESCE(SUM(quantity), 0) AS quantity FROM booking_items WHERE booking_id = ?",
+      [bookingId]
+    );
+    if (Number(count.quantity) !== travelers.length) {
+      throw httpError(400, `Provide exactly ${Number(count.quantity)} traveler records to match the booking quantity.`);
+    }
+    await conn.execute("DELETE FROM booking_travelers WHERE booking_id = ?", [bookingId]);
+    for (const traveler of travelers) {
+      await conn.execute(
+        `INSERT INTO booking_travelers (booking_id, traveler_name, traveler_type, nationality)
+         VALUES (?, ?, ?, ?)`,
+        [bookingId, traveler.traveler_name, traveler.traveler_type, traveler.nationality]
+      );
+    }
+    const [saved] = await conn.execute(
+      `SELECT id, traveler_name, traveler_type, nationality, created_at
+         FROM booking_travelers WHERE booking_id = ? ORDER BY id`,
+      [bookingId]
+    );
+    return { booking_id: bookingId, travelers: saved };
+  });
+}
+
+async function updateSpecialRequests(userId, bookingId, body) {
+  if (typeof body.special_requests !== "string" && body.special_requests !== null) {
+    throw httpError(400, "special_requests must be a string or null.");
+  }
+  const value = body.special_requests == null ? null : body.special_requests.trim();
+  if (value && value.length > 5000) throw httpError(400, "special_requests must be 5000 characters or fewer.");
+  return withTransaction(async (conn) => {
+    const booking = await ownedBooking(conn, userId, bookingId, true);
+    if (!EDITABLE_STATUSES.includes(booking.booking_status)) {
+      throw httpError(409, "Special requests can only be changed while the booking is pending review or awaiting payment.");
+    }
+    await conn.execute("UPDATE bookings SET special_requests = ? WHERE id = ?", [value || null, bookingId]);
+    return { booking_id: bookingId, special_requests: value || null };
+  });
+}
+
+async function requestCancellation(userId, bookingId, body) {
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  if (!reason || reason.length > 2000) throw httpError(400, "reason is required and must be 2000 characters or fewer.");
+  return withTransaction(async (conn) => {
+    const booking = await ownedBooking(conn, userId, bookingId, true);
+    if (["cancelled", "rejected", "expired", "completed"].includes(booking.booking_status)) {
+      throw httpError(409, "A cancellation request cannot be submitted for this booking status.");
+    }
+    const [existing] = await conn.execute(
+      `SELECT id FROM booking_change_requests
+        WHERE booking_id = ? AND requested_by = ? AND request_type = 'other' AND status = 'pending'
+        ORDER BY id DESC LIMIT 1`,
+      [bookingId, userId]
+    );
+    if (existing.length) throw httpError(409, "A pending request already exists for this booking.");
+    const details = JSON.stringify({ category: "cancellation_request", reason });
+    const [result] = await conn.execute(
+      `INSERT INTO booking_change_requests
+        (booking_id, requested_by, request_type, request_details, status)
+       VALUES (?, ?, 'other', ?, 'pending')`,
+      [bookingId, userId, details]
+    );
+    return { request_id: result.insertId, booking_id: bookingId, status: "pending" };
+  });
+}
+
+module.exports = {
+  listBookings, getBooking, replaceTravelers, updateSpecialRequests, requestCancellation,
+};
+
+
+===== FILE: backend/src/modules/customer-payments/customer-payment.controller.js =====
+const service = require("./customer-payment.service");
+
+function authId(req, res) {
+  const id = Number(req.user && req.user.id);
+  if (!Number.isSafeInteger(id) || id < 1) {
+    res.status(401).json({ success: false, message: "Authentication required." });
+    return null;
+  }
+  return id;
+}
+function positiveId(value) {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+function fail(res, error) {
+  const status = error.statusCode || 500;
+  if (status >= 500) console.error("Customer payment error:", error);
+  return res.status(status).json({
+    success: false,
+    message: status >= 500 ? "An unexpected error occurred." : error.message,
+  });
+}
+async function listPayments(req, res) {
+  const userId = authId(req, res);
+  if (!userId) return;
+  try {
+    const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
+    const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 10));
+    return res.json({ success: true, data: await service.listPayments(userId, page, limit) });
+  } catch (error) { return fail(res, error); }
+}
+async function getPayment(req, res) {
+  const userId = authId(req, res);
+  if (!userId) return;
+  const paymentId = positiveId(req.params.paymentId);
+  if (!paymentId) return res.status(400).json({ success: false, message: "Invalid payment ID." });
+  try { return res.json({ success: true, data: await service.getPayment(userId, paymentId) }); }
+  catch (error) { return fail(res, error); }
+}
+async function initiatePayment(req, res) {
+  const userId = authId(req, res);
+  if (!userId) return;
+  const bookingId = positiveId(req.params.bookingId);
+  if (!bookingId) return res.status(400).json({ success: false, message: "Invalid booking ID." });
+  try {
+    const data = await service.initiatePayment(userId, bookingId, req.body || {});
+    return res.status(data.reused ? 200 : 201).json({ success: true, data });
+  } catch (error) { return fail(res, error); }
+}
+module.exports = { listPayments, getPayment, initiatePayment };
+
+
+===== FILE: backend/src/modules/customer-payments/customer-payment.routes.js =====
+const express = require("express");
+const controller = require("./customer-payment.controller");
+const router = express.Router();
+
+router.get("/payments", controller.listPayments);
+router.get("/payments/:paymentId", controller.getPayment);
+router.post("/bookings/:bookingId/payments", controller.initiatePayment);
+
+module.exports = router;
+
+
+===== FILE: backend/src/modules/customer-payments/customer-payment.service.js =====
+const { pool, withTransaction } = require("../../config/db");
+
+function problem(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+async function listPayments(userId, page, limit) {
+  const offset = (page - 1) * limit;
+  const [[count]] = await pool.execute(
+    "SELECT COUNT(*) AS total FROM payments p JOIN bookings b ON b.id = p.booking_id WHERE b.user_id = ?",
+    [userId]
+  );
+  const [items] = await pool.execute(
+    `SELECT p.id, p.booking_id, b.booking_reference, p.provider,
+            p.provider_payment_id, p.amount, p.currency_code, p.status,
+            p.verified_at, p.created_at, p.updated_at
+       FROM payments p
+       JOIN bookings b ON b.id = p.booking_id
+      WHERE b.user_id = ?
+      ORDER BY p.created_at DESC, p.id DESC
+      LIMIT ? OFFSET ?`,
+    [userId, limit, offset]
+  );
+  const total = Number(count.total);
+  return { items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+}
+
+async function getPayment(userId, paymentId) {
+  const [rows] = await pool.execute(
+    `SELECT p.id, p.booking_id, b.booking_reference, p.provider,
+            p.provider_payment_id, p.amount, p.currency_code, p.status,
+            p.verified_at, p.created_at, p.updated_at
+       FROM payments p
+       JOIN bookings b ON b.id = p.booking_id
+      WHERE p.id = ? AND b.user_id = ?`,
+    [paymentId, userId]
+  );
+  if (!rows.length) throw problem(404, "Payment not found.");
+  return rows[0];
+}
+
+async function initiatePayment(userId, bookingId, body) {
+  const key = typeof body.idempotency_key === "string" ? body.idempotency_key.trim() : "";
+  if (!key || key.length > 100) {
+    throw problem(400, "idempotency_key is required and must be at most 100 characters.");
+  }
+
+  return withTransaction(async (conn) => {
+    const [bookings] = await conn.execute(
+      "SELECT * FROM bookings WHERE id = ? AND user_id = ? FOR UPDATE",
+      [bookingId, userId]
+    );
+    if (!bookings.length) throw problem(404, "Booking not found.");
+    const booking = bookings[0];
+
+    // payments.idempotency_key is globally UNIQUE in the supplied SQL schema.
+    const [sameKey] = await conn.execute(
+      `SELECT p.id, p.booking_id, p.provider, p.amount, p.currency_code, p.status
+         FROM payments p
+        WHERE p.idempotency_key = ?
+        LIMIT 1`,
+      [key]
+    );
+    if (sameKey.length) {
+      if (Number(sameKey[0].booking_id) !== Number(bookingId)) {
+        throw problem(409, "This idempotency key has already been used for another booking.");
+      }
+      return { ...sameKey[0], reused: true };
+    }
+
+    if (!["pending_review", "awaiting_payment"].includes(booking.booking_status)) {
+      throw problem(409, "This booking is not eligible for payment.");
+    }
+    if (["paid", "not_required", "partially_refunded", "refunded"].includes(booking.payment_status)) {
+      throw problem(409, "This booking does not currently require another payment.");
+    }
+    if (!(Number(booking.total_amount) > 0)) {
+      throw problem(409, "Booking total must be greater than zero.");
+    }
+
+    const [openAttempts] = await conn.execute(
+      `SELECT id, booking_id, provider, amount, currency_code, status
+         FROM payments
+        WHERE booking_id = ? AND status IN ('initiated', 'pending')
+        ORDER BY id DESC LIMIT 1`,
+      [bookingId]
+    );
+    if (openAttempts.length) {
+      throw problem(409, "A payment attempt is already initiated or pending for this booking. Retry using its original idempotency key.");
+    }
+
+    const [insert] = await conn.execute(
+      `INSERT INTO payments
+        (booking_id, provider, provider_payment_id, idempotency_key, amount, currency_code, status)
+       VALUES (?, 'manual_pending', NULL, ?, ?, ?, 'initiated')`,
+      [bookingId, key, booking.total_amount, booking.currency_code]
+    );
+    await conn.execute(
+      "UPDATE bookings SET payment_status = 'pending' WHERE id = ?",
+      [bookingId]
+    );
+
+    return {
+      id: insert.insertId,
+      booking_id: bookingId,
+      provider: "manual_pending",
+      amount: booking.total_amount,
+      currency_code: booking.currency_code,
+      status: "initiated",
+      reused: false,
+      message: "Payment attempt recorded. No external checkout session has been created.",
+    };
+  });
+}
+
+module.exports = { listPayments, getPayment, initiatePayment };
+
+
+===== FILE: backend/src/modules/customers/admin-customer.controller.js =====
+const service = require("./admin-customer.service");
+
+exports.list = async (req, res) => {
+  const result = await service.list(req.query);
+  res.json({ success: true, ...result });
+};
+
+exports.getById = async (req, res) => {
+  const customer = await service.getById(req.params.id);
+  res.json({ success: true, data: customer });
+};
+
+exports.updateStatus = async (req, res) => {
+  const actorId = req.user?.id ?? req.user?.user_id ?? null;
+  const result = await service.updateStatus(req.params.id, req.body?.status, actorId, req.body?.reason);
+  res.json({ success: true, message: "Customer status updated.", data: result });
+};
+
+
+===== FILE: backend/src/modules/customers/admin-customer.routes.js =====
+const express = require("express");
+const controller = require("./admin-customer.controller");
+const asyncHandler = require("../../utils/asynchandler");
+const authenticate = require("../../middleware/authenticate");
+const authorize = require("../../middleware/authorize");
+
+const router = express.Router();
+router.use(authenticate);
+
+router.get("/", authorize("customers.read"), asyncHandler(controller.list));
+router.get("/:id", authorize("customers.read"), asyncHandler(controller.getById));
+router.patch("/:id/status", authorize("customers.suspend"), asyncHandler(controller.updateStatus));
+
+module.exports = router;
+
+
+===== FILE: backend/src/modules/customers/admin-customer.service.js =====
+const db = require("../../config/db");
+
+const VALID_STATUSES = new Set(["active", "suspended"]);
+function httpError(status, message) {
+  const e = new Error(message);
+  e.statusCode = status;
+  return e;
+}
+function validId(id) {
+  if (!/^[1-9]\d*$/.test(String(id))) throw httpError(400, "Invalid customer id.");
+  return String(id);
+}
+function pool() { return db.pool || db; }
+async function query(sql, params = [], conn = null) {
+  const target = conn || pool();
+  if (typeof target.execute === "function") return target.execute(sql, params);
+  if (typeof target.query === "function") return target.query(sql, params);
+  throw new Error("Database module must export a mysql2 pool or connection.");
+}
+async function rows(sql, params = [], conn = null) {
+  const result = await query(sql, params, conn);
+  return Array.isArray(result) && Array.isArray(result[0]) ? result[0] : result;
+}
+async function getConnection() {
+  const p = pool();
+  return typeof p.getConnection === "function" ? p.getConnection() : null;
+}
+function userStatusColumn() {
+  // The supplied schema must be checked for the exact user account-status column.
+  // The current scaffold assumes users.account_status with values active/suspended.
+  return "account_status";
+}
+async function list(q) {
+  const page = Math.max(1, Number.parseInt(q.page, 10) || 1);
+  const limit = Math.max(1, Math.min(100, Number.parseInt(q.limit, 10) || 20));
+  const where = ["EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND r.role_key = 'customer')"];
+  const params = [];
+  if (q.search) {
+    const term = `%${String(q.search).trim().slice(0, 120)}%`;
+    where.push("(u.full_name LIKE ? OR u.email LIKE ? OR u.phone LIKE ?)");
+    params.push(term, term, term);
+  }
+  if (q.status) {
+    if (!VALID_STATUSES.has(q.status)) throw httpError(400, "Invalid customer status.");
+    where.push(`u.${userStatusColumn()} = ?`);
+    params.push(q.status);
+  }
+  const clause = `WHERE ${where.join(" AND ")}`;
+  const count = await rows(`SELECT COUNT(*) AS total FROM users u ${clause}`, params);
+  const data = await rows(
+    `SELECT u.id, u.full_name AS name, u.email, u.phone, u.${userStatusColumn()} AS account_status,
+            u.created_at,
+            (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id) AS total_bookings,
+            (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id AND b.booking_status IN ('confirmed','completed')) AS confirmed_or_completed_bookings
+       FROM users u ${clause}
+      ORDER BY u.created_at DESC, u.id DESC LIMIT ? OFFSET ?`,
+    [...params, limit, (page - 1) * limit]
+  );
+  const total = Number(count[0]?.total || 0);
+  return { data, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+}
+async function getById(id) {
+  id = validId(id);
+  const found = await rows(
+    `SELECT u.id, u.full_name AS name, u.email, u.phone, u.${userStatusColumn()} AS account_status, u.created_at,
+            (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id) AS total_bookings
+       FROM users u WHERE u.id = ? LIMIT 1`,
+    [id]
+  );
+  if (!found.length) throw httpError(404, "Customer not found.");
+  const bookings = await rows(
+    `SELECT b.id, b.booking_reference, b.booking_status, b.payment_status, b.total_amount,
+            b.currency_code, b.created_at
+       FROM bookings b WHERE b.user_id = ? ORDER BY b.created_at DESC, b.id DESC LIMIT 50`,
+    [id]
+  );
+  return { ...found[0], bookings };
+}
+async function updateStatus(id, status, actorId, reason) {
+  id = validId(id);
+  if (!VALID_STATUSES.has(status)) throw httpError(400, "status must be 'active' or 'suspended'.");
+  const conn = await getConnection();
+  const execute = async (c) => {
+    const found = await rows(
+      `SELECT id, ${userStatusColumn()} AS account_status FROM users WHERE id = ? FOR UPDATE`,
+      [id], c
+    );
+    if (!found.length) throw httpError(404, "Customer not found.");
+    if (found[0].account_status === status) {
+      return { id, account_status: status, unchanged: true };
+    }
+    await query(`UPDATE users SET ${userStatusColumn()} = ? WHERE id = ?`, [status, id], c);
+    try {
+      await query(
+        `INSERT INTO audit_logs
+           (actor_user_id, action, entity_type, entity_id, before_data, after_data)
+         VALUES (?, ?, 'customer', ?, ?, ?)`,
+        [actorId, status === "suspended" ? "customer.suspend" : "customer.activate", id,
+         JSON.stringify({ accountStatus: found[0].account_status }),
+         JSON.stringify({
+           accountStatus: status,
+           reason: reason ? String(reason).slice(0, 500) : null,
+         })], c
+      );
+    } catch (e) {
+      if (e.code !== "ER_BAD_FIELD_ERROR" && e.code !== "ER_NO_SUCH_TABLE") throw e;
+    }
+    return { id, account_status: status, unchanged: false };
+  };
+  if (!conn) return execute(null);
+  try {
+    await conn.beginTransaction();
+    const result = await execute(conn);
+    await conn.commit();
+    return result;
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+exports.list = list;
+exports.getById = getById;
+exports.updateStatus = updateStatus;
+
+
+===== FILE: backend/src/modules/departure-availability/departure.admin.routes.js =====
+const express = require("express");
+const asyncHandler = require("../../utils/asynchandler");
+const controller = require("./departure.controller");
+const router = express.Router();
+
+router.post("/", asyncHandler(controller.create));
+router.patch("/:id", asyncHandler(controller.update));
+router.delete("/:id", asyncHandler(controller.remove));
+module.exports = router;
+
+
+===== FILE: backend/src/modules/departure-availability/departure.controller.js =====
+const service = require("./departure.service");
+const { positiveInt, validateCreate, validateUpdate } = require("./departure.validation");
+const { sendSuccess } = require("../../utils/response");
+
+module.exports = {
+  list: async (req, res) => {
+    const tourId = positiveInt(req.params.tourId, "tourId");
+    const from = req.query.from || undefined, to = req.query.to || undefined;
+    if (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) { const e = new Error("from must use YYYY-MM-DD"); e.statusCode = 400; throw e; }
+    if (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) { const e = new Error("to must use YYYY-MM-DD"); e.statusCode = 400; throw e; }
+    return sendSuccess(res, await service.listForTour(tourId, {
+      from, to, availableOnly: req.query.availableOnly === "true"
+    }));
+  },
+  create: async (req, res) => sendSuccess(res, await service.create(validateCreate(req.body)), 201),
+  update: async (req, res) => sendSuccess(res, await service.update(
+    positiveInt(req.params.id, "id"), validateUpdate(req.body)
+  )),
+  remove: async (req, res) => {
+    await service.remove(positiveInt(req.params.id, "id"));
+    return sendSuccess(res, { message: "Departure deleted" });
+  },
+  availability: async (req, res) => sendSuccess(res,
+    await service.availability(positiveInt(req.params.id, "id")))
+};
+
+
+===== FILE: backend/src/modules/departure-availability/departure.public.routes.js =====
+const express = require("express");
+const asyncHandler = require("../../utils/asynchandler");
+const controller = require("./departure.controller");
+const router = express.Router();
+
+router.get("/tours/:tourId/departures", asyncHandler(controller.list));
+router.get("/departures/:id/availability", asyncHandler(controller.availability));
+module.exports = router;
+
+
+===== FILE: backend/src/modules/departure-availability/departure.service.js =====
+const { pool } = require("../../config/db");
+const AppError = require("../../utils/appError");
+
+const conflict = (msg) => { throw AppError.conflict(msg); };
+const bad = (msg) => { throw AppError.badRequest(msg, "VALIDATION_ERROR"); };
+
+async function listByTour(tourId, { availableOnly = false } = {}) {
+  const [tours] = await pool.execute("SELECT id FROM tours WHERE id = ? AND status = 'published' AND deleted_at IS NULL", [tourId]);
+  if (!tours.length) throw AppError.notFound("Tour not found");
+  const conditions = ["tour_id = ?", "status IN ('scheduled', 'sold_out')"];
+  if (availableOnly) conditions.push("seat_capacity > seats_reserved");
+  const [rows] = await pool.execute(
+    `SELECT id, tour_id, starts_at, ends_at, seat_capacity, seats_reserved,
+      GREATEST(CAST(seat_capacity AS SIGNED) - CAST(seats_reserved AS SIGNED), 0) AS seats_available,
+      price_override, status
+     FROM tour_departures WHERE ${conditions.join(" AND ")} ORDER BY starts_at ASC`,
+    [tourId]
+  );
+  return rows;
+}
+
+async function create({ tour_id, starts_at, ends_at, seat_capacity, price_override, status = "scheduled" }) {
+  const [tours] = await pool.execute("SELECT id FROM tours WHERE id = ? AND deleted_at IS NULL", [tour_id]);
+  if (!tours.length) throw AppError.notFound("Tour not found");
+  const [result] = await pool.execute(
+    `INSERT INTO tour_departures
+      (tour_id, starts_at, ends_at, seat_capacity, seats_reserved, price_override, status)
+     VALUES (?, ?, ?, ?, 0, ?, ?)`,
+    [tour_id, starts_at, ends_at || null, seat_capacity, price_override ?? null, status]
+  );
+  const [rows] = await pool.execute("SELECT * FROM tour_departures WHERE id = ?", [result.insertId]);
+  return rows[0];
+}
+
+async function update(id, patch) {
+  const [rows] = await pool.execute("SELECT * FROM tour_departures WHERE id = ?", [id]);
+  if (!rows.length) throw AppError.notFound("Departure not found");
+  const row = rows[0];
+  const capacity = patch.seat_capacity ?? row.seat_capacity;
+  const status = patch.status ?? row.status;
+  if (capacity < row.seats_reserved) conflict("Seat capacity cannot be lower than seats already reserved");
+  if (status === "cancelled" && row.seats_reserved > 0) {
+    conflict("Cannot cancel a departure with reserved seats");
+  }
+  const fields = [];
+  const values = [];
+  for (const key of ["starts_at", "ends_at", "seat_capacity", "price_override", "status"]) {
+    if (patch[key] !== undefined) { fields.push(`${key} = ?`); values.push(patch[key]); }
+  }
+  if (!fields.length) return row;
+  values.push(id);
+  await pool.execute(`UPDATE tour_departures SET ${fields.join(", ")} WHERE id = ?`, values);
+  const [updated] = await pool.execute("SELECT * FROM tour_departures WHERE id = ?", [id]);
+  return updated[0];
+}
+
+async function remove(id) {
+  const [rows] = await pool.execute("SELECT * FROM tour_departures WHERE id = ?", [id]);
+  if (!rows.length) throw AppError.notFound("Departure not found");
+  if (rows[0].seats_reserved > 0) conflict("Cannot delete a departure with reserved seats");
+  await pool.execute("DELETE FROM tour_departures WHERE id = ?", [id]);
+  return { deleted: true };
+}
+
+async function listCalendar({ from, to, tourId } = {}) {
+  const conditions = [];
+  const params = [];
+  if (from) { conditions.push("d.starts_at >= ?"); params.push(from); }
+  if (to) { conditions.push("d.starts_at <= ?"); params.push(to); }
+  if (tourId) { conditions.push("d.tour_id = ?"); params.push(tourId); }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const [rows] = await pool.execute(
+    `SELECT d.id, d.tour_id, d.starts_at, d.ends_at, d.seat_capacity, d.seats_reserved,
+      GREATEST(CAST(d.seat_capacity AS SIGNED) - CAST(d.seats_reserved AS SIGNED), 0) AS seats_available,
+      d.price_override, d.status, t.title AS tour_title, t.slug AS tour_slug, t.currency_code
+     FROM tour_departures d
+     JOIN tours t ON t.id = d.tour_id AND t.deleted_at IS NULL
+     ${where}
+     ORDER BY d.starts_at ASC`,
+    params
+  );
+  return rows;
+}
+
+module.exports = { listByTour, create, update, remove, listCalendar };
+
+===== FILE: backend/src/modules/departure-availability/departure.validation.js =====
+function fail(message, statusCode = 400) { const e = new Error(message); e.statusCode = statusCode; throw e; }
+function positiveInt(value, field) {
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n < 1) fail(`${field} must be a positive integer`);
+  return n;
+}
+function parseDate(value, field) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?)?$/.test(value)) fail(`${field} must be a valid date/time`);
+  const d = new Date(value.length === 10 ? `${value}T00:00:00Z` : value);
+  if (Number.isNaN(d.getTime())) fail(`${field} is invalid`);
+  return value;
+}
+function validateCreate(body) {
+  const tourId = positiveInt(body.tourId, "tourId");
+  const startsAt = parseDate(body.startsAt, "startsAt");
+  const endsAt = parseDate(body.endsAt, "endsAt");
+  if (new Date(endsAt) <= new Date(startsAt)) fail("endsAt must be later than startsAt");
+  const seatCapacity = positiveInt(body.seatCapacity, "seatCapacity");
+  if (body.priceOverride !== undefined && body.priceOverride !== null &&
+      !/^\d{1,10}(?:\.\d{1,2})?$/.test(String(body.priceOverride))) fail("priceOverride must be a non-negative amount with up to 2 decimals");
+  if (body.status !== undefined && !["scheduled", "cancelled", "completed"].includes(body.status)) fail("Invalid departure status");
+  return { tourId, startsAt, endsAt, seatCapacity, priceOverride: body.priceOverride ?? null, status: body.status || "scheduled" };
+}
+function validateUpdate(body) {
+  const out = {};
+  if (body.startsAt !== undefined) out.startsAt = parseDate(body.startsAt, "startsAt");
+  if (body.endsAt !== undefined) out.endsAt = parseDate(body.endsAt, "endsAt");
+  if (body.seatCapacity !== undefined) out.seatCapacity = positiveInt(body.seatCapacity, "seatCapacity");
+  if (body.priceOverride !== undefined) {
+    if (body.priceOverride !== null && !/^\d{1,10}(?:\.\d{1,2})?$/.test(String(body.priceOverride))) fail("priceOverride must be null or a non-negative amount with up to 2 decimals");
+    out.priceOverride = body.priceOverride;
+  }
+  if (body.status !== undefined) {
+    if (!["scheduled", "cancelled", "completed"].includes(body.status)) fail("Invalid departure status");
+    out.status = body.status;
+  }
+  if (!Object.keys(out).length) fail("At least one supported field is required");
+  return out;
+}
+module.exports = { positiveInt, validateCreate, validateUpdate };
+
+
+===== FILE: backend/src/modules/departure-availability/INSTALL_MOUNT.txt =====
+PHASE 5.5 QUICK INSTALL
+
+1) No SQL migration is needed.
+2) Copy src/modules/departure-availability into backend/src/modules/.
+3) In src/routes/index.js add public mount:
+   router.use("/", require("../modules/departure-availability/departure.public.routes"));
+4) Add protected admin mount:
+   router.use(
+     "/admin/departures",
+     staffAuth,
+     requirePermission("departures.manage"),
+     require("../modules/departure-availability/departure.admin.routes")
+   );
+   Replace middleware placeholders with your real exports.
+5) Restart backend.
+
+Test:
+GET /api/tours/1/departures
+GET /api/tours/1/departures?availableOnly=true
+GET /api/departures/1/availability
+
+
+===== FILE: backend/src/modules/departures/admin-departure.controller.js =====
+const service = require("./admin-departure.service");
+const { sendSuccess } = require("../../utils/response");
+const asyncHandler = require("../../utils/asyncHandler");
+
+module.exports = {
+  list: asyncHandler(async (req, res) => {
+    const result = await service.list(req.validated.query);
+    return sendSuccess(res, result.rows, { meta: { page: req.validated.query.page, limit: req.validated.query.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / req.validated.query.limit)) } });
+  }),
+  get: asyncHandler(async (req, res) => sendSuccess(res, await service.get(req.validated.params.id))),
+  create: asyncHandler(async (req, res) => sendSuccess(res, await service.create(req.validated.body), { status: 201 })),
+  update: asyncHandler(async (req, res) => sendSuccess(res, await service.update(req.validated.params.id, req.validated.body))),
+  changeStatus: asyncHandler(async (req, res) => sendSuccess(res, await service.changeStatus(req.validated.params.id, req.validated.body.status))),
+  remove: asyncHandler(async (req, res) => sendSuccess(res, await service.remove(req.validated.params.id))),
+};
+
+
+===== FILE: backend/src/modules/departures/admin-departure.repository.js =====
+const { pool } = require("../../config/db");
+const SELECT = `d.id, d.tour_id, t.title AS tour_title, t.slug AS tour_slug,
+ d.starts_at, d.ends_at, d.seat_capacity, d.seats_reserved,
+ GREATEST(CAST(d.seat_capacity AS SIGNED) - CAST(d.seats_reserved AS SIGNED), 0) AS seats_available,
+ d.price_override, d.status, d.created_at, d.updated_at`;
+
+async function findById(id, executor = pool) {
+  const [rows] = await executor.execute(
+    `SELECT ${SELECT} FROM tour_departures d JOIN tours t ON t.id = d.tour_id WHERE d.id = ? LIMIT 1`,
+    [Number(id)]
+  );
+  return rows[0] || null;
+}
+
+async function tourExists(tourId, executor = pool) {
+  const [rows] = await executor.execute(
+    "SELECT id FROM tours WHERE id = ? AND deleted_at IS NULL LIMIT 1",
+    [Number(tourId)]
+  );
+  return Boolean(rows[0]);
+}
+
+async function list({ page = 1, limit = 20, tour_id, status, from, to }) {
+  const where = [];
+  const params = [];
+  if (tour_id) { where.push("d.tour_id = ?"); params.push(Number(tour_id)); }
+  if (status) { where.push("d.status = ?"); params.push(status); }
+  if (from) { where.push("d.starts_at >= ?"); params.push(`${from} 00:00:00`); }
+  if (to) { where.push("d.starts_at < DATE_ADD(?, INTERVAL 1 DAY)"); params.push(to); }
+  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const [countRows] = await pool.execute(`SELECT COUNT(*) AS total FROM tour_departures d ${clause}`, params);
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+  const safeOffset = Math.max(0, (Math.max(1, Number(page) || 1) - 1) * safeLimit);
+  const [rows] = await pool.execute(
+    `SELECT ${SELECT} FROM tour_departures d JOIN tours t ON t.id = d.tour_id ${clause} ORDER BY d.starts_at ASC, d.id ASC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+    params
+  );
+  return { rows, total: Number(countRows[0].total) };
+}
+
+async function create(data) {
+  const [result] = await pool.execute(
+    "INSERT INTO tour_departures (tour_id, starts_at, ends_at, seat_capacity, price_override, status) VALUES (?, ?, ?, ?, ?, 'scheduled')",
+    [Number(data.tour_id), data.starts_at, data.ends_at ?? null, Number(data.seat_capacity), data.price_override ?? null]
+  );
+  return findById(result.insertId);
+}
+
+async function update(id, data) {
+  const fields = ["tour_id", "starts_at", "ends_at", "seat_capacity", "price_override"].filter((f) => Object.hasOwn(data, f));
+  if (!fields.length) return findById(id);
+  const assignments = fields.map((f) => `${f} = ?`);
+  const values = fields.map((f) => data[f] ?? (f === "ends_at" || f === "price_override" ? null : data[f]));
+  await pool.execute(`UPDATE tour_departures SET ${assignments.join(", ")} WHERE id = ?`, [...values, Number(id)]);
+  return findById(id);
+}
+
+async function changeStatus(id, status) {
+  await pool.execute("UPDATE tour_departures SET status = ? WHERE id = ?", [status, Number(id)]);
+  return findById(id);
+}
+
+async function removeIfUnreserved(id) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.execute("SELECT seats_reserved FROM tour_departures WHERE id = ? FOR UPDATE", [Number(id)]);
+    if (!rows[0]) { await conn.rollback(); return { missing: true }; }
+    if (Number(rows[0].seats_reserved) > 0) { await conn.rollback(); return { conflict: true }; }
+    const [items] = await conn.execute("SELECT id FROM booking_items WHERE departure_id = ? LIMIT 1", [Number(id)]);
+    if (items.length) { await conn.rollback(); return { conflict: true }; }
+    await conn.execute("DELETE FROM tour_departures WHERE id = ?", [Number(id)]);
+    await conn.commit();
+    return { deleted: true };
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
+module.exports = { findById, tourExists, list, create, update, changeStatus, removeIfUnreserved };
+
+===== FILE: backend/src/modules/departures/admin-departure.routes.js =====
+const express = require("express");
+const authenticate = require("../../middleware/authenticate");
+const authorize = require("../../middleware/authorize");
+const validate = require("../../middleware/validate");
+const controller = require("./admin-departure.controller");
+const schema = require("./admin-departure.schema");
+
+const router = express.Router();
+router.use(authenticate, authorize("departures.manage"));
+router.get("/", validate({ query: schema.listQuery }), controller.list);
+router.post("/", validate({ body: schema.createDepartureBody }), controller.create);
+router.get("/:id", validate({ params: schema.idParams }), controller.get);
+router.patch("/:id", validate({ params: schema.idParams, body: schema.updateDepartureBody }), controller.update);
+router.patch("/:id/status", validate({ params: schema.idParams, body: schema.statusBody }), controller.changeStatus);
+router.delete("/:id", validate({ params: schema.idParams }), controller.remove);
+module.exports = router;
+
+
+===== FILE: backend/src/modules/departures/admin-departure.schema.js =====
+const { z } = require("zod");
+
+const idParams = z.object({ id: z.coerce.number().int().positive() });
+const dateTime = z.string().trim().min(1).max(30);
+const departureFields = {
+  tour_id: z.coerce.number().int().positive(),
+  starts_at: dateTime,
+  ends_at: dateTime.nullable().optional(),
+  seat_capacity: z.coerce.number().int().min(1).max(100000),
+  price_override: z.union([z.null(), z.coerce.number().min(0).max(9999999999.99)]).optional(),
+};
+const createDepartureBody = z.object(departureFields).strict();
+const updateDepartureBody = z.object({
+  tour_id: departureFields.tour_id.optional(),
+  starts_at: dateTime.optional(),
+  ends_at: dateTime.nullable().optional(),
+  seat_capacity: departureFields.seat_capacity.optional(),
+  price_override: departureFields.price_override,
+}).strict().refine((body) => Object.keys(body).length > 0, { message: "At least one field is required" });
+const statusBody = z.object({ status: z.enum(["scheduled", "cancelled", "completed"]) }).strict();
+const listQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  tour_id: z.coerce.number().int().positive().optional(),
+  status: z.enum(["scheduled", "sold_out", "cancelled", "completed"]).optional(),
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+}).strict().refine((q) => !q.from || !q.to || q.from <= q.to, { message: "from must be on or before to" });
+module.exports = { idParams, createDepartureBody, updateDepartureBody, statusBody, listQuery };
+
+
+===== FILE: backend/src/modules/departures/admin-departure.service.js =====
+const repo = require("./admin-departure.repository");
+const AppError = require("../../utils/appError");
+
+function toSqlDateTime(value, field) {
+  if (value == null) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw AppError.validation([{ path: field, message: "Must be a valid date/time" }]);
+  // Normalize instants to UTC because the schema documents UTC storage.
+  return date.toISOString().slice(0, 19).replace("T", " ");
+}
+function normalizeDates(data) {
+  const result = { ...data };
+  if (Object.hasOwn(result, "starts_at")) result.starts_at = toSqlDateTime(result.starts_at, "starts_at");
+  if (Object.hasOwn(result, "ends_at")) result.ends_at = toSqlDateTime(result.ends_at, "ends_at");
+  if (result.starts_at && result.ends_at && result.ends_at < result.starts_at) {
+    throw AppError.validation([{ path: "ends_at", message: "Must be on or after starts_at" }]);
+  }
+  return result;
+}
+async function list(query) { return repo.list(query); }
+async function get(id) {
+  const departure = await repo.findById(id);
+  if (!departure) throw AppError.notFound("Departure not found");
+  return departure;
+}
+async function create(input) {
+  const data = normalizeDates(input);
+  if (data.ends_at && data.ends_at < data.starts_at) throw AppError.validation([{ path: "ends_at", message: "Must be on or after starts_at" }]);
+  if (!(await repo.tourExists(data.tour_id))) throw AppError.notFound("Tour not found");
+  return repo.create(data);
+}
+async function update(id, input) {
+  const current = await repo.findById(id);
+  if (!current) throw AppError.notFound("Departure not found");
+  const data = normalizeDates(input);
+  const tourId = data.tour_id ?? Number(current.tour_id);
+  if (data.tour_id && !(await repo.tourExists(tourId))) throw AppError.notFound("Tour not found");
+  const start = data.starts_at ?? current.starts_at;
+  const end = Object.hasOwn(data, "ends_at") ? data.ends_at : current.ends_at;
+  if (end && new Date(end) < new Date(start)) throw AppError.validation([{ path: "ends_at", message: "Must be on or after starts_at" }]);
+  const capacity = data.seat_capacity ?? Number(current.seat_capacity);
+  if (capacity < Number(current.seats_reserved)) {
+    throw AppError.conflict("Seat capacity cannot be lower than seats already reserved");
+  }
+  if (current.status === "cancelled" || current.status === "completed") {
+    throw AppError.conflict("Cancelled or completed departures cannot be edited");
+  }
+  return repo.update(id, data);
+}
+async function changeStatus(id, status) {
+  const current = await repo.findById(id);
+  if (!current) throw AppError.notFound("Departure not found");
+  if (current.status === "completed" && status !== "completed") throw AppError.conflict("Completed departures cannot be reopened");
+  if (current.status === "cancelled" && status === "scheduled") throw AppError.conflict("Cancelled departures cannot be rescheduled; create a new departure instead");
+  if (status === "completed" && new Date(current.starts_at) > new Date()) throw AppError.conflict("A future departure cannot be marked completed");
+  if (status === "scheduled" && Number(current.seats_reserved) >= Number(current.seat_capacity)) throw AppError.conflict("Departure has no remaining seats");
+  return repo.changeStatus(id, status);
+}
+async function remove(id) {
+  const result = await repo.removeIfUnreserved(id);
+  if (result.missing) throw AppError.notFound("Departure not found");
+  if (result.conflict) throw AppError.conflict("Departure cannot be deleted because it has reserved seats or booking history");
+  return { id };
+}
+module.exports = { list, get, create, update, changeStatus, remove };
+
+
+===== FILE: backend/src/modules/destinations/destination.admin.routes.js =====
+const r=require('express').Router(),c=require('./destination.controller');
+// Mount behind staff authentication and content.manage permission.
+r.get('/',c.adminList);r.get('/:id',c.adminGet);r.post('/',c.create);r.put('/:id',c.update);r.delete('/:id',c.remove);module.exports=r;
+
+
+===== FILE: backend/src/modules/destinations/destination.controller.js =====
+const s=require('./destination.service');
+const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
+exports.publicList=wrap(async(req,res)=>res.json({success:true,data:await s.publicList(req.query)}));
+exports.publicBySlug=wrap(async(req,res)=>res.json({success:true,data:await s.publicBySlug(req.params.slug)}));
+exports.publicTours=wrap(async(req,res)=>res.json({success:true,data:await s.publicTours(req.params.slug,req.query)}));
+exports.adminList=wrap(async(req,res)=>res.json({success:true,data:await s.adminList(req.query)}));
+exports.adminGet=wrap(async(req,res)=>res.json({success:true,data:await s.adminGet(Number(req.params.id))}));
+exports.create=wrap(async(req,res)=>res.status(201).json({success:true,data:await s.create(req.body,req.user?.id)}));
+exports.update=wrap(async(req,res)=>res.json({success:true,data:await s.update(Number(req.params.id),req.body,req.user?.id)}));
+exports.remove=wrap(async(req,res)=>res.json({success:true,data:await s.remove(Number(req.params.id))}));
+
+
+===== FILE: backend/src/modules/destinations/destination.public.routes.js =====
+const r=require('express').Router(),c=require('./destination.controller');
+r.get('/',c.publicList);r.get('/:slug/tours',c.publicTours);r.get('/:slug',c.publicBySlug);module.exports=r;
+
+
+===== FILE: backend/src/modules/destinations/destination.service.js =====
+const {pool}=require('../../config/db');
+const {validateCreate}=require('./destination.validation');
+function problem(statusCode,message){const e=new Error(message);e.statusCode=statusCode;return e;}
+function paging(q){const page=Math.max(1,Number(q.page)||1),limit=Math.max(1,Math.min(Number(q.limit)||20,100));return {page,limit,offset:(page-1)*limit};}
+async function publicList(q={}){
+ const p=paging(q),w=['d.status=?'],a=['published'];
+ if(q.search){w.push('(d.name LIKE ? OR d.region LIKE ? OR d.country LIKE ?)');const s='%'+String(q.search).slice(0,80)+'%';a.push(s,s,s);}
+ if(q.country){w.push('d.country=?');a.push(String(q.country).slice(0,100));}
+ if(q.featured==='true')w.push('d.is_featured=1');
+ const where=w.join(' AND '),[[c]]=await pool.execute(`SELECT COUNT(*) total FROM destinations d WHERE ${where}`,a);
+ const [items]=await pool.execute(`SELECT d.id,d.slug,d.name,d.description,d.country,d.region,d.featured_image_url,d.meta_title,d.meta_description,d.is_featured,(SELECT COUNT(*) FROM tours t WHERE t.destination_id=d.id AND t.status='published' AND t.deleted_at IS NULL) published_tour_count FROM destinations d WHERE ${where} ORDER BY d.is_featured DESC,d.name LIMIT ? OFFSET ?`,[...a,p.limit,p.offset]);
+ return {items,pagination:{page:p.page,limit:p.limit,total:Number(c.total),totalPages:Math.ceil(Number(c.total)/p.limit)}};
+}
+async function publicBySlug(slug){
+ const [r]=await pool.execute(`SELECT id,slug,name,description,country,region,featured_image_url,meta_title,meta_description,is_featured FROM destinations WHERE slug=? AND status='published'`,[slug]);
+ if(!r.length)throw problem(404,'Destination not found.');return r[0];
+}
+async function publicTours(slug,q={}){
+ const d=await publicBySlug(slug),p=paging(q);
+ const [[c]]=await pool.execute(`SELECT COUNT(*) total FROM tours WHERE destination_id=? AND status='published' AND deleted_at IS NULL`,[d.id]);
+ const [items]=await pool.execute(`SELECT id,slug,title,summary,destination,duration_days,base_price,currency_code,cover_image_url FROM tours WHERE destination_id=? AND status='published' AND deleted_at IS NULL ORDER BY title LIMIT ? OFFSET ?`,[d.id,p.limit,p.offset]);
+ return {destination:d,items,pagination:{page:p.page,limit:p.limit,total:Number(c.total),totalPages:Math.ceil(Number(c.total)/p.limit)}};
+}
+async function adminList(q={}){
+ const p=paging(q),w=[],a=[];
+ if(q.status){w.push('status=?');a.push(q.status);}
+ if(q.search){w.push('(name LIKE ? OR slug LIKE ?)');const s='%'+String(q.search).slice(0,80)+'%';a.push(s,s);}
+ const where=w.length?'WHERE '+w.join(' AND '):'',[[c]]=await pool.execute(`SELECT COUNT(*) total FROM destinations ${where}`,a);
+ const [items]=await pool.execute(`SELECT d.*,(SELECT COUNT(*) FROM tours t WHERE t.destination_id=d.id AND t.deleted_at IS NULL) tour_count FROM destinations d ${where} ORDER BY d.updated_at DESC LIMIT ? OFFSET ?`,[...a,p.limit,p.offset]);
+ return {items,pagination:{page:p.page,limit:p.limit,total:Number(c.total),totalPages:Math.ceil(Number(c.total)/p.limit)}};
+}
+async function adminGet(id){const [r]=await pool.execute(`SELECT d.*,(SELECT COUNT(*) FROM tours t WHERE t.destination_id=d.id AND t.deleted_at IS NULL) tour_count FROM destinations d WHERE d.id=?`,[id]);if(!r.length)throw problem(404,'Destination not found.');return r[0];}
+async function create(input,actor){
+ const {errors,value}=validateCreate(input);if(errors.length)throw problem(400,errors.join('; '));
+ try{const [r]=await pool.execute(`INSERT INTO destinations(slug,name,description,country,region,featured_image_url,meta_title,meta_description,status,is_featured,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,[value.slug,value.name,value.description,value.country,value.region,value.featured_image_url,value.meta_title,value.meta_description,value.status,value.is_featured?1:0,actor||null,actor||null]);return adminGet(r.insertId);}
+ catch(e){if(e.code==='ER_DUP_ENTRY')throw problem(409,'Destination slug already exists.');throw e;}
+}
+async function update(id,input,actor){
+ const old=await adminGet(id),{errors,value}=validateCreate({...old,...input});if(errors.length)throw problem(400,errors.join('; '));
+ try{await pool.execute(`UPDATE destinations SET slug=?,name=?,description=?,country=?,region=?,featured_image_url=?,meta_title=?,meta_description=?,status=?,is_featured=?,updated_by=? WHERE id=?`,[value.slug,value.name,value.description,value.country,value.region,value.featured_image_url,value.meta_title,value.meta_description,value.status,value.is_featured?1:0,actor||null,id]);return adminGet(id);}
+ catch(e){if(e.code==='ER_DUP_ENTRY')throw problem(409,'Destination slug already exists.');throw e;}
+}
+async function remove(id){const old=await adminGet(id),[[c]]=await pool.execute('SELECT COUNT(*) total FROM tours WHERE destination_id=? AND deleted_at IS NULL',[id]);if(Number(c.total))throw problem(409,'Destination is linked to tours. Reassign or archive those tours first.');await pool.execute('DELETE FROM destinations WHERE id=?',[id]);return {id:old.id,deleted:true};}
+module.exports={publicList,publicBySlug,publicTours,adminList,adminGet,create,update,remove};
+
+
+===== FILE: backend/src/modules/destinations/destination.validation.js =====
+const SLUG_RE=/^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+function validateCreate(input={}){
+ const errors=[],name=typeof input.name==='string'?input.name.trim():'';
+ const slug=typeof input.slug==='string'&&input.slug.trim()?input.slug.trim():name.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+ if(!name||name.length>160)errors.push('name is required (max 160 characters)');
+ if(!slug||slug.length>180||!SLUG_RE.test(slug))errors.push('slug must use lowercase letters, numbers and hyphens');
+ for(const k of ['description','country','region','featured_image_url','meta_title','meta_description'])if(input[k]!=null&&typeof input[k]!=='string')errors.push(k+' must be a string');
+ if(input.country&&input.country.length>100)errors.push('country too long');
+ if(input.region&&input.region.length>120)errors.push('region too long');
+ if(input.featured_image_url&&(input.featured_image_url.length>1024||!/^https:\/\/\S+$/i.test(input.featured_image_url)))errors.push('featured_image_url must be HTTPS');
+ if(input.status!==undefined&&!['draft','published','archived'].includes(input.status))errors.push('invalid status');
+ if(input.meta_title&&input.meta_title.length>180)errors.push('meta_title too long');
+ if(input.meta_description&&input.meta_description.length>320)errors.push('meta_description too long');
+ return {errors,value:{name,slug,description:input.description??null,country:input.country??'Bangladesh',region:input.region??null,featured_image_url:input.featured_image_url??null,meta_title:input.meta_title??null,meta_description:input.meta_description??null,status:input.status??'draft',is_featured:input.is_featured===true}};
+}
+module.exports={validateCreate};
+
+
+===== FILE: backend/src/modules/destinations/INSTALL_MOUNT.txt =====
+PHASE 5.2 INSTALLATION
+
+1. Back up MariaDB database bengalbeyond.
+2. Run migrations/0052_destination_management.sql once.
+3. Copy src/modules/destinations/ into backend/src/modules/destinations/.
+4. In src/routes/index.js add:
+
+router.use('/destinations', require('../modules/destinations/destination.public.routes'));
+router.use('/admin/destinations', staffAuth, requirePermission('content.manage'),
+  require('../modules/destinations/destination.admin.routes'));
+
+`staffAuth` and `requirePermission` are placeholders: replace with the actual middleware
+exports in your backend. Admin endpoints must be protected.
+
+5. Restart backend.
+6. Test:
+GET http://localhost:5000/api/destinations
+GET http://localhost:5000/api/destinations/coxs-bazar
+GET http://localhost:5000/api/destinations/coxs-bazar/tours
+
+Admin endpoints require a staff token with content.manage:
+GET/POST/PUT/DELETE http://localhost:5000/api/admin/destinations
+
+Migration creates destinations, adds nullable tours.destination_id, adds its FK/index,
+and backfills existing distinct tours.destination values. Existing tours.destination
+remains unchanged. Do not run migration twice.
+

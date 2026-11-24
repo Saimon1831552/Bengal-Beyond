@@ -101,16 +101,18 @@ async function retryFailed(limit=25) {
   }
   return results;
 }
-async function listEvents({page=1,limit=25,status}={}) {
-  const p=Math.max(1,Number(page)||1), l=Math.max(1,Math.min(Number(limit)||25,100));
-  const where=status? 'WHERE processing_status = ?':'';
-  const params=status?[status]:[];
-  const [rows]=await pool.execute(
+async function listEvents({ page = 1, limit = 25, status } = {}) {
+  const p = Math.max(1, Number.parseInt(page, 10) || 1);
+  const l = Math.max(1, Math.min(Number.parseInt(limit, 10) || 25, 100));
+  const offset = (p - 1) * l;
+  const where = status ? "WHERE processing_status = ?" : "";
+  const params = status ? [status] : [];
+  const [rows] = await pool.execute(
     `SELECT id,provider,event_key,validation_id,processing_status,attempt_count,
             last_error,received_at,last_attempt_at,processed_at
        FROM payment_webhook_events ${where}
-      ORDER BY received_at DESC LIMIT ? OFFSET ?`,
-    [...params,l,(p-1)*l]
+      ORDER BY received_at DESC LIMIT ${l} OFFSET ${offset}`,
+    params
   );
   return rows;
 }

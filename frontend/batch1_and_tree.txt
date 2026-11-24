@@ -1,0 +1,877 @@
+﻿===== COMPLETE FRONTEND FILE TREE =====
+frontend/.env.local
+frontend/.gitignore
+frontend/AGENTS.md
+frontend/batch1_and_tree.txt
+frontend/eslint.config.mjs
+frontend/jsconfig.json
+frontend/next.config.mjs
+frontend/package.json
+frontend/postcss.config.mjs
+frontend/public/file.svg
+frontend/public/globe.svg
+frontend/public/next.svg
+frontend/public/vercel.svg
+frontend/public/window.svg
+frontend/README.md
+frontend/src/app/(admin)/admin/[...slug]/page.js
+frontend/src/app/(admin)/admin/accommodation/page.js
+frontend/src/app/(admin)/admin/activity-logs/page.js
+frontend/src/app/(admin)/admin/assignments/page.js
+frontend/src/app/(admin)/admin/availability/page.js
+frontend/src/app/(admin)/admin/blogs/page.js
+frontend/src/app/(admin)/admin/bookings/[id]/page.js
+frontend/src/app/(admin)/admin/bookings/page.js
+frontend/src/app/(admin)/admin/calendar/page.js
+frontend/src/app/(admin)/admin/campaigns/page.js
+frontend/src/app/(admin)/admin/cancellations/page.js
+frontend/src/app/(admin)/admin/categories/page.js
+frontend/src/app/(admin)/admin/coupons/page.js
+frontend/src/app/(admin)/admin/custom-enquiries/page.js
+frontend/src/app/(admin)/admin/customer-activity/page.js
+frontend/src/app/(admin)/admin/customer-groups/page.js
+frontend/src/app/(admin)/admin/customers/page.js
+frontend/src/app/(admin)/admin/destinations/page.js
+frontend/src/app/(admin)/admin/emails/page.js
+frontend/src/app/(admin)/admin/faqs/page.js
+frontend/src/app/(admin)/admin/gallery/page.js
+frontend/src/app/(admin)/admin/guides/page.js
+frontend/src/app/(admin)/admin/inquiries/[id]/page.js
+frontend/src/app/(admin)/admin/inquiries/page.js
+frontend/src/app/(admin)/admin/invoices/page.js
+frontend/src/app/(admin)/admin/itineraries/page.js
+frontend/src/app/(admin)/admin/newsletter/page.js
+frontend/src/app/(admin)/admin/packages/page.js
+frontend/src/app/(admin)/admin/page.js
+frontend/src/app/(admin)/admin/pages/page.js
+frontend/src/app/(admin)/admin/payments/page.js
+frontend/src/app/(admin)/admin/payment-webhooks/page.js
+frontend/src/app/(admin)/admin/permissions/page.js
+frontend/src/app/(admin)/admin/promotions/page.js
+frontend/src/app/(admin)/admin/referrals/page.js
+frontend/src/app/(admin)/admin/refunds/page.js
+frontend/src/app/(admin)/admin/reports/page.js
+frontend/src/app/(admin)/admin/reviews/page.js
+frontend/src/app/(admin)/admin/roles/page.js
+frontend/src/app/(admin)/admin/seasonal-pricing/page.js
+frontend/src/app/(admin)/admin/settings/page.js
+frontend/src/app/(admin)/admin/settings/website/page.js
+frontend/src/app/(admin)/admin/tags/page.js
+frontend/src/app/(admin)/admin/testimonials/page.js
+frontend/src/app/(admin)/admin/tours/[id]/page.js
+frontend/src/app/(admin)/admin/tours/new/page.js
+frontend/src/app/(admin)/admin/tours/page.js
+frontend/src/app/(admin)/admin/transactions/page.js
+frontend/src/app/(admin)/admin/vehicles/page.js
+frontend/src/app/(admin)/layout.js
+frontend/src/app/(auth)/forgot-password/page.js
+frontend/src/app/(auth)/layout.js
+frontend/src/app/(auth)/register/page.js
+frontend/src/app/(auth)/reset-password/page.js
+frontend/src/app/(auth)/sign-in/page.js
+frontend/src/app/(auth)/verify-email/page.js
+frontend/src/app/(customer)/bookings/[id]/page.js
+frontend/src/app/(customer)/bookings/page.js
+frontend/src/app/(customer)/dashboard/page.js
+frontend/src/app/(customer)/layout.js
+frontend/src/app/(customer)/payment-result/page.js
+frontend/src/app/(customer)/payments/page.js
+frontend/src/app/(customer)/wishlist/page.js
+frontend/src/app/(public)/about/page.js
+frontend/src/app/(public)/blog/[slug]/page.js
+frontend/src/app/(public)/blog/page.js
+frontend/src/app/(public)/booking/page.js
+frontend/src/app/(public)/contact/page.js
+frontend/src/app/(public)/destinations/[slug]/page.js
+frontend/src/app/(public)/destinations/page.js
+frontend/src/app/(public)/faqs/page.js
+frontend/src/app/(public)/page.js
+frontend/src/app/(public)/pages/[slug]/page.js
+frontend/src/app/(public)/tours/[slug]/page.js
+frontend/src/app/(public)/tours/page.js
+frontend/src/app/favicon.ico
+frontend/src/app/globals.css
+frontend/src/app/layout.js
+frontend/src/app/manifest.js
+frontend/src/app/not-found.js
+frontend/src/app/opengraph-image.js
+frontend/src/app/robots.js
+frontend/src/app/sitemap.js
+frontend/src/components/account/BookingDetail.jsx
+frontend/src/components/account/CancelRequest.jsx
+frontend/src/components/account/CustomerShell.jsx
+frontend/src/components/account/PaymentResult.jsx
+frontend/src/components/account/PayPanel.jsx
+frontend/src/components/account/ReviewPrompt.jsx
+frontend/src/components/account/State.jsx
+frontend/src/components/admin/AdminAccommodation.jsx
+frontend/src/components/admin/AdminActivityLogs.jsx
+frontend/src/components/admin/AdminAssignments.jsx
+frontend/src/components/admin/AdminAvailability.jsx
+frontend/src/components/admin/AdminBookingDetail.jsx
+frontend/src/components/admin/AdminBookings.jsx
+frontend/src/components/admin/AdminCalendar.jsx
+frontend/src/components/admin/AdminCampaigns.jsx
+frontend/src/components/admin/AdminCancellations.jsx
+frontend/src/components/admin/AdminCustomEnquiries.jsx
+frontend/src/components/admin/AdminCustomerActivity.jsx
+frontend/src/components/admin/AdminCustomerGroups.jsx
+frontend/src/components/admin/AdminCustomers.jsx
+frontend/src/components/admin/AdminDashboard.jsx
+frontend/src/components/admin/AdminEmails.jsx
+frontend/src/components/admin/AdminFaqs.jsx
+frontend/src/components/admin/AdminGuides.jsx
+frontend/src/components/admin/AdminInquiries.jsx
+frontend/src/components/admin/AdminInquiryDetail.jsx
+frontend/src/components/admin/AdminInvoices.jsx
+frontend/src/components/admin/AdminItineraries.jsx
+frontend/src/components/admin/AdminNewsletter.jsx
+frontend/src/components/admin/AdminPackages.jsx
+frontend/src/components/admin/AdminPages.jsx
+frontend/src/components/admin/AdminPayments.jsx
+frontend/src/components/admin/AdminPaymentWebhooks.jsx
+frontend/src/components/admin/AdminPermissions.jsx
+frontend/src/components/admin/AdminReferrals.jsx
+frontend/src/components/admin/AdminRefunds.jsx
+frontend/src/components/admin/AdminReports.jsx
+frontend/src/components/admin/AdminRoles.jsx
+frontend/src/components/admin/AdminSeasonalPricing.jsx
+frontend/src/components/admin/AdminShell.jsx
+frontend/src/components/admin/AdminTestimonials.jsx
+frontend/src/components/admin/AdminTourEdit.jsx
+frontend/src/components/admin/AdminTours.jsx
+frontend/src/components/admin/AdminTransactions.jsx
+frontend/src/components/admin/AdminVehicles.jsx
+frontend/src/components/admin/ComingSoon.jsx
+frontend/src/components/admin/DepartureManager.jsx
+frontend/src/components/admin/RefundActions.jsx
+frontend/src/components/admin/RefundPanel.jsx
+frontend/src/components/admin/ResourceManager.jsx
+frontend/src/components/admin/resources/blogs.jsx
+frontend/src/components/admin/resources/coupons.jsx
+frontend/src/components/admin/resources/destinations.jsx
+frontend/src/components/admin/resources/gallery.jsx
+frontend/src/components/admin/resources/reviews.jsx
+frontend/src/components/admin/resources/shared.js
+frontend/src/components/admin/resources/taxonomy.jsx
+frontend/src/components/admin/SecurityPanel.jsx
+frontend/src/components/admin/SettingsForm.jsx
+frontend/src/components/admin/TourForm.jsx
+frontend/src/components/admin/TourTaxonomy.jsx
+frontend/src/components/auth/AuthShell.jsx
+frontend/src/components/auth/ForgotForm.jsx
+frontend/src/components/auth/RegisterForm.jsx
+frontend/src/components/auth/RequireAuth.jsx
+frontend/src/components/auth/ResetForm.jsx
+frontend/src/components/auth/SignInForm.jsx
+frontend/src/components/auth/VerifyEmail.jsx
+frontend/src/components/booking/BookingWizard.jsx
+frontend/src/components/cards/DestinationCard.jsx
+frontend/src/components/cards/TourCard.jsx
+frontend/src/components/dashboard/DashboardShell.jsx
+frontend/src/components/forms/ContactForm.jsx
+frontend/src/components/fx/ClipReveal.jsx
+frontend/src/components/fx/Counter.jsx
+frontend/src/components/fx/CustomCursor.jsx
+frontend/src/components/fx/KineticHeading.jsx
+frontend/src/components/fx/Magnetic.jsx
+frontend/src/components/fx/MicroFX.jsx
+frontend/src/components/fx/MorphWord.jsx
+frontend/src/components/fx/Reveal.jsx
+frontend/src/components/fx/ShaderCanvas.jsx
+frontend/src/components/fx/SplitText.jsx
+frontend/src/components/fx/TiltCard.jsx
+frontend/src/components/Hero3D.js
+frontend/src/components/Hero3DLoader.js
+frontend/src/components/landing/About.jsx
+frontend/src/components/landing/Blogs.jsx
+frontend/src/components/landing/data.js
+frontend/src/components/landing/DayTours.jsx
+frontend/src/components/landing/DepthScene.jsx
+frontend/src/components/landing/FeatureShowcase.jsx
+frontend/src/components/landing/Gallery.jsx
+frontend/src/components/landing/Heritage.jsx
+frontend/src/components/landing/Hero.jsx
+frontend/src/components/landing/HolidayTours.jsx
+frontend/src/components/landing/SectionHeader.jsx
+frontend/src/components/landing/ShortTours.jsx
+frontend/src/components/landing/Stats.jsx
+frontend/src/components/landing/Testimonials.jsx
+frontend/src/components/landing/Trending.jsx
+frontend/src/components/landing/WhyChoose.jsx
+frontend/src/components/layout/AuthMenu.jsx
+frontend/src/components/layout/Footer.jsx
+frontend/src/components/layout/MaintenanceBanner.jsx
+frontend/src/components/layout/Navbar.jsx
+frontend/src/components/providers/AuthProvider.jsx
+frontend/src/components/public/NewsletterSignup.jsx
+frontend/src/components/public/TestimonialsSection.jsx
+frontend/src/components/public/TourAddonsSelector.jsx
+frontend/src/components/Reveal.js
+frontend/src/components/seo/Breadcrumbs.jsx
+frontend/src/components/seo/JsonLd.jsx
+frontend/src/components/SmoothScroll.js
+frontend/src/components/tours/TourFilters.jsx
+frontend/src/components/tours/WishlistButton.jsx
+frontend/src/components/ui/Button.jsx
+frontend/src/components/ui/Card.jsx
+frontend/src/components/ui/ConfirmModal.jsx
+frontend/src/components/ui/Container.jsx
+frontend/src/components/ui/Field.jsx
+frontend/src/components/ui/Pagination.jsx
+frontend/src/components/ui/RemoteImage.jsx
+frontend/src/components/ui/Stars.jsx
+frontend/src/components/ui/StatusBadge.jsx
+frontend/src/components/ui/ToastProvider.jsx
+frontend/src/config/site.js
+frontend/src/hooks/useAccess.js
+frontend/src/hooks/useCountdown.js
+frontend/src/hooks/useFetch.js
+frontend/src/lib/access.js
+frontend/src/lib/axios.js
+frontend/src/lib/burst.js
+frontend/src/lib/errors.js
+frontend/src/lib/format.js
+frontend/src/lib/gl.js
+frontend/src/lib/gsap.js
+frontend/src/lib/jsonld.js
+frontend/src/lib/navigation.js
+frontend/src/lib/seo.js
+frontend/src/lib/session.js
+frontend/src/lib/shaders.js
+frontend/src/lib/tourFilters.js
+frontend/src/services/auth.service.js
+frontend/src/services/content.js
+frontend/src/store/useAccessStore.js
+frontend/src/store/useAuthStore.js
+
+===== FILE: frontend/package.json =====
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
+    "axios": "^1.21.1",
+    "framer-motion": "^14.12.0",
+    "gsap": "^3.15.1",
+    "lenis": "^1.3.27",
+    "motion": "^14.14.0",
+    "next": "16.4.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "three": "^0.187.0",
+    "zustand": "^5.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "babel-plugin-react-compiler": "1.0.0",
+    "eslint": "^9",
+    "eslint-config-next": "^15.5.29",
+    "tailwindcss": "^4"
+  },
+  "overrides": {
+    "magic-string": "0.30.21"
+  }
+}
+
+
+===== FILE: frontend/next.config.mjs =====
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: true,
+  poweredByHeader: false,
+  compress: true,
+  images: {
+    formats: ["image/avif", "image/webp"],
+    remotePatterns: [
+      { protocol: "https", hostname: "images.unsplash.com" },
+    ],
+  },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+      {
+        // long-cache static media
+        source: "/images/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+    ];
+  },
+  async redirects() {
+    return [
+      // one canonical host: add real redirects here, e.g. www -> apex, old URLs -> new
+    ];
+  },
+};
+
+export default nextConfig;
+
+
+===== FILE: frontend/jsconfig.json =====
+{
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}
+
+
+===== FILE: frontend/eslint.config.mjs =====
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  // Override default ignores of eslint-config-next.
+  globalIgnores([
+    // Default ignores of eslint-config-next:
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+  ]),
+]);
+
+export default eslintConfig;
+
+
+===== FILE: frontend/postcss.config.mjs =====
+const postcssConfig = {
+  plugins: {
+    "@tailwindcss/postcss": {},
+  },
+};
+
+export default postcssConfig;
+
+
+===== FILE: frontend/AGENTS.md =====
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
+
+
+===== FILE: frontend/README.md =====
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+
+## Getting Started
+
+First, run the development server:
+
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+
+===== FILE: frontend/src/app/layout.js =====
+import { Fraunces, Manrope } from "next/font/google";
+import "./globals.css";
+import { siteConfig } from "@/config/site";
+import JsonLd from "@/components/seo/JsonLd";
+import { organizationJsonLd, websiteJsonLd } from "@/lib/jsonld";
+import SmoothScroll from "@/components/SmoothScroll";
+import Navbar from "@/components/layout/Navbar";
+import Footer from "@/components/layout/Footer";
+import MaintenanceBanner from "@/components/layout/MaintenanceBanner";
+import AuthProvider from "@/components/providers/AuthProvider";
+import { ToastProvider } from "@/components/ui/ToastProvider";
+import CustomCursor from "@/components/fx/CustomCursor";
+import MicroFX from "@/components/fx/MicroFX";
+import { getSiteInfo } from "@/services/content";
+
+
+const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces", display: "swap", style: ["normal", "italic"] });
+const manrope  = Manrope({ subsets: ["latin"], variable: "--font-manrope", display: "swap" });
+
+export const metadata = {
+  metadataBase: new URL(siteConfig.url),
+  title: { default: `${siteConfig.name} | ${siteConfig.tagline}`, template: `%s | ${siteConfig.name}` },
+  description: siteConfig.description,
+  applicationName: siteConfig.name,
+  keywords: siteConfig.keywords,
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    siteName: siteConfig.name,
+    locale: siteConfig.locale,
+    url: siteConfig.url,
+    title: `${siteConfig.name} | ${siteConfig.tagline}`,
+    description: siteConfig.description,
+  },
+  twitter: { card: "summary_large_image", title: siteConfig.name, description: siteConfig.description },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1, "max-video-preview": -1 },
+  },
+  verification: {
+    google: siteConfig.verification.google || undefined,
+    other: siteConfig.verification.bing ? { "msvalidate.01": siteConfig.verification.bing } : undefined,
+  },
+  formatDetection: { telephone: false },
+};
+
+export const viewport = {
+  themeColor: siteConfig.themeColor,
+  width: "device-width",
+  initialScale: 1,
+};
+
+export default async function RootLayout({ children }) {
+  const info = await getSiteInfo();
+
+  return (
+    <html lang={siteConfig.language} className={`${fraunces.variable} ${manrope.variable}`}>
+      <body className="min-h-full flex flex-col">
+        <SmoothScroll>
+          <AuthProvider>
+            <ToastProvider>
+              <a href="#main" className="skip-link">Skip to content</a>
+              <Navbar />
+              <div id="main" className="flex-1">{children}</div>
+              <Footer info={info} />
+              <MaintenanceBanner info={info} />
+            </ToastProvider>
+          </AuthProvider>
+          <CustomCursor />
+          <MicroFX />
+          <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
+        </SmoothScroll>
+      </body>
+    </html>
+  );
+}
+
+
+===== FILE: frontend/src/app/globals.css =====
+@import "tailwindcss";
+
+:root {
+  --background: #FAF8F3;
+  --foreground: #14201C;
+  --primary: #0E4D3A;
+  --primary-dark: #082B21;
+  --accent: #1B9C7B;
+  --gold: #E8A93C;
+  --sand: #F0E3C8;
+  --muted: #5E6B66;
+  --border: #E6E1D3;
+  --terracotta: #D2693F;
+  --ocean: #1C7CB5;
+
+  --canvas: #f2f5f4;
+  --surface: #ffffff;
+  --ink: #12211f;
+  --ink-soft: #50635f;
+  --line: #dde5e2;
+  --mangrove: #0d2b27;
+  --mangrove-2: #143a35;
+  --mangrove-line: #1f4a44;
+  --teal: #126b5c;
+  --teal-soft: #dff0ec;
+  --saffron: #c98412;
+  --saffron-soft: #fbefd5;
+  --rose: #b4362d;
+  --rose-soft: #fbe3e0;
+  --sky: #2a6fa8;
+  --sky-soft: #e0edf8;
+  --violet: #6a4fb3;
+  --violet-soft: #ece7f8;
+
+  /* gradients */
+  --grad-brand: linear-gradient(135deg, #082B21 0%, #0E4D3A 55%, #1B9C7B 100%);
+  --grad-warm: linear-gradient(135deg, #E8A93C 0%, #D2693F 100%);
+  --grad-sea: linear-gradient(135deg, #0E4D3A 0%, #1C7CB5 100%);
+
+  /* motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-dark: var(--primary-dark);
+  --color-accent: var(--accent);
+  --color-gold: var(--gold);
+  --color-sand: var(--sand);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-terracotta: var(--terracotta);
+  --color-ocean: var(--ocean);
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-line: var(--line);
+  --color-mangrove: var(--mangrove);
+  --color-mangrove-2: var(--mangrove-2);
+  --color-mangrove-line: var(--mangrove-line);
+  --color-teal: var(--teal);
+  --color-teal-soft: var(--teal-soft);
+  --color-saffron: var(--saffron);
+  --color-saffron-soft: var(--saffron-soft);
+  --color-rose: var(--rose);
+  --color-rose-soft: var(--rose-soft);
+  --color-sky: var(--sky);
+  --color-sky-soft: var(--sky-soft);
+  --color-violet: var(--violet);
+  --color-violet-soft: var(--violet-soft);
+
+  /* mapped to the next/font variables set in layout.js (renamed, see below) */
+  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-sans: var(--font-manrope), system-ui, sans-serif;
+  --font-ui: var(--font-manrope), system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    animation: page-in 0.6s var(--ease-out) both;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-fraunces), Georgia, serif;
+    line-height: 1.12;
+    letter-spacing: -0.01em;
+    color: var(--primary); /* layered, so text-white / text-gold utilities override it */
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+    transition: color 0.25s var(--ease-out);
+  }
+
+  ::selection { background: var(--gold); color: var(--primary-dark); }
+
+  :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 4px; }
+}
+
+@layer components {
+  /* gradient text */
+  .text-gradient {
+    background: var(--grad-warm);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* frosted glass */
+  .glass {
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    backdrop-filter: blur(18px) saturate(140%);
+  }
+
+  /* gold CTA with glow + shine sweep */
+  .btn-gold {
+    position: relative;
+    overflow: hidden;
+    background: var(--grad-warm);
+    color: var(--primary-dark);
+    box-shadow: 0 8px 26px -6px rgba(232, 169, 60, 0.7);
+    transition: transform 0.35s var(--ease-spring), box-shadow 0.35s var(--ease-out);
+  }
+  .btn-gold::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.55) 50%, transparent 70%);
+    transform: translateX(-120%);
+    transition: transform 0.8s var(--ease-out);
+  }
+  .btn-gold:hover { transform: translateY(-2px); box-shadow: 0 14px 38px -6px rgba(232, 169, 60, 0.95); }
+  .btn-gold:hover::after { transform: translateX(120%); }
+
+  /* animated underline link */
+  .link-underline {
+    background: linear-gradient(currentColor, currentColor) 0 100% / 0 1px no-repeat;
+    transition: background-size 0.4s var(--ease-out), color 0.25s;
+  }
+  .link-underline:hover { background-size: 100% 1px; }
+
+  /* lift card */
+  .lift {
+    transition: transform 0.4s var(--ease-out), box-shadow 0.4s var(--ease-out), border-color 0.3s;
+  }
+  .lift:hover {
+    transform: translateY(-6px);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    box-shadow: 0 24px 44px -18px rgba(14, 77, 58, 0.4);
+  }
+
+  .skip-link {
+    position: absolute; left: -9999px; top: 0; z-index: 100;
+    background: var(--primary); color: #fff; padding: .75rem 1rem;
+  }
+  .skip-link:focus { left: 0; }
+}
+
+/* section background helpers */
+.bg-brand { background: var(--grad-brand); }
+.bg-sea { background: var(--grad-sea); }
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mangrove-line) transparent;
+}
+
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes seat-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.seat-fill {
+  transform-origin: left;
+  animation: seat-fill 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-10px); }
+}
+.animate-float { animation: float 4s ease-in-out infinite; }
+
+@layer components {
+  .glass-deep {
+    position: relative;
+    background: linear-gradient(135deg, rgba(255,255,255,.3), rgba(255,255,255,.08));
+    border: 1px solid rgba(255,255,255,.38);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,.45),
+                inset 0 1px 0 rgba(255,255,255,.6),
+                inset 0 -1px 0 rgba(255,255,255,.1);
+  }
+  .glass-deep::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: radial-gradient(120% 80% at 0% 0%, rgba(255,255,255,.35), transparent 50%);
+  }
+}
+
+/* slim branded scrollbar */
+html { scrollbar-width: thin; scrollbar-color: var(--accent) var(--background); }
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: var(--background); }
+::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 8px; border: 2px solid var(--background); }
+
+/* ---------- layered glass ---------- */
+@layer components {
+  .glass-deep {
+    position: relative;
+    background: linear-gradient(135deg, rgba(255,255,255,.3), rgba(255,255,255,.08));
+    border: 1px solid rgba(255,255,255,.38);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,.45),
+                inset 0 1px 0 rgba(255,255,255,.6),
+                inset 0 -1px 0 rgba(255,255,255,.1);
+  }
+  .glass-deep::before {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: radial-gradient(120% 80% at 0% 0%, rgba(255,255,255,.35), transparent 50%);
+  }
+}
+
+/* ---------- custom cursor ---------- */
+.has-cursor, .has-cursor * { cursor: none !important; }
+.has-cursor input, .has-cursor textarea { cursor: text !important; }
+.has-cursor select { cursor: default !important; }
+
+/* ---------- button ripple ---------- */
+.fx-ripple {
+  position: absolute; border-radius: 9999px; pointer-events: none;
+  width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  background: rgba(255,255,255,.65);
+  animation: fx-ripple .7s var(--ease-out) forwards;
+}
+@keyframes fx-ripple { to { transform: scale(26); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+===== FILE: frontend/src/app/manifest.js =====
+import { siteConfig } from "@/config/site";
+
+export default function manifest() {
+  return {
+    name: siteConfig.name,
+    short_name: siteConfig.name,
+    description: siteConfig.description,
+    start_url: "/",
+    display: "standalone",
+    background_color: siteConfig.backgroundColor,
+    theme_color: siteConfig.themeColor,
+    icons: [
+      { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+  };
+}
+
+
+===== FILE: frontend/src/app/robots.js =====
+import { siteConfig, privatePaths } from "@/config/site";
+
+export default function robots() {
+  const isProd = process.env.VERCEL_ENV ? process.env.VERCEL_ENV === "production" : process.env.NODE_ENV === "production";
+
+  // Never let staging / preview deployments get indexed
+  if (!isProd) return { rules: { userAgent: "*", disallow: "/" } };
+
+  return {
+    rules: [{ userAgent: "*", allow: "/", disallow: privatePaths.map((p) => `${p}/`).concat(privatePaths) }],
+    sitemap: `${siteConfig.url}/sitemap.xml`,
+    host: siteConfig.url,
+  };
+}
+
+
+===== FILE: frontend/src/app/sitemap.js =====
+import { absoluteUrl } from "@/lib/seo";
+import { getDestinations, getTours, getPosts } from "@/services/content";
+
+const BUILD_DATE = new Date();
+
+export default async function sitemap() {
+  const [destinations, tours, posts] = await Promise.all([getDestinations(), getTours(), getPosts()]);
+
+  const staticRoutes = [
+    { path: "/", priority: 1, changeFrequency: "weekly" },
+    { path: "/destinations", priority: 0.9, changeFrequency: "weekly" },
+    { path: "/tours", priority: 0.9, changeFrequency: "weekly" },
+    { path: "/blog", priority: 0.7, changeFrequency: "weekly" },
+    { path: "/about", priority: 0.5, changeFrequency: "yearly" },
+    { path: "/contact", priority: 0.5, changeFrequency: "yearly" },
+  ].map((r) => ({ url: absoluteUrl(r.path), lastModified: BUILD_DATE, changeFrequency: r.changeFrequency, priority: r.priority }));
+
+  const entry = (base, item, priority) => {
+    const date = item.updatedAt || item.publishedAt;
+    return {
+      url: absoluteUrl(`${base}/${item.slug}`),
+      lastModified: date ? new Date(date) : undefined,
+      changeFrequency: "monthly",
+      priority,
+    };
+  };
+
+  return [
+    ...staticRoutes,
+    ...destinations.map((d) => entry("/destinations", d, 0.8)),
+    ...tours.map((t) => entry("/tours", t, 0.8)),
+    ...posts.map((p) => entry("/blog", p, 0.6)),
+  ];
+}
+
+
+===== FILE: frontend/src/app/opengraph-image.js =====
+import { ImageResponse } from "next/og";
+import { siteConfig } from "@/config/site";
+
+export const alt = siteConfig.name;
+export const size = { width: 1200, height: 630 };
+export const contentType = "image/png";
+
+// Default share card for every page that doesn't define its own image
+export default function OpengraphImage() {
+  return new ImageResponse(
+    (
+      <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", padding: 80, background: "linear-gradient(135deg,#0B2A22,#123D32 55%,#16856A)", color: "#F8F7F2" }}>
+        <div style={{ fontSize: 28, letterSpacing: 6, textTransform: "uppercase", color: "#D6A85F" }}>Bangladesh</div>
+        <div style={{ fontSize: 96, lineHeight: 1.05, marginTop: 24 }}>Discover Bangladesh.</div>
+        <div style={{ fontSize: 96, lineHeight: 1.05, color: "#D6A85F" }}>Beyond the Ordinary.</div>
+        <div style={{ fontSize: 36, marginTop: 40, color: "#E8D8B9" }}>{siteConfig.name}</div>
+      </div>
+    ),
+    size
+  );
+}
+
+
+===== FILE: frontend/src/app/not-found.js =====
+import Link from "next/link";
+import { noIndexMetadata } from "@/lib/seo";
+
+export const metadata = { title: "Page not found", ...noIndexMetadata };
+
+export default function NotFound() {
+  return (
+    <main style={{ padding: "120px 24px", textAlign: "center" }}>
+      <h1>This page has wandered off</h1>
+      <p>Try our <Link className="link-underline" href="/destinations">destinations</Link> or <Link className="link-underline" href="/tours">tours</Link>.</p>
+    </main>
+  );
+}
+

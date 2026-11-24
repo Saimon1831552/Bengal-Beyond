@@ -1,0 +1,742 @@
+﻿
+
+===== FILE: frontend/src/app/(customer)/layout.js =====
+import { noIndexMetadata } from "@/lib/seo";
+import RequireAuth from "@/components/auth/RequireAuth";
+import CustomerShell from "@/components/account/CustomerShell";
+
+export const metadata = { title: "My account", ...noIndexMetadata };
+
+export default function CustomerLayout({ children }) {
+  return <RequireAuth><CustomerShell>{children}</CustomerShell></RequireAuth>;
+}
+
+
+===== FILE: frontend/src/app/(customer)/dashboard/page.js =====
+"use client";
+import { useState } from "react";
+import Link from "next/link";
+import Container from "@/components/ui/Container";
+import StatusBadge from "@/components/ui/StatusBadge";
+import { Loading, ErrorBox, Empty } from "@/components/account/State";
+import useFetch from "@/hooks/useFetch";
+import api from "@/lib/axios";
+import { useAuthStore } from "@/store/useAuthStore";
+import { money, formatDate } from "@/lib/format";
+import { errMsg } from "@/lib/errors";
+
+export default function Dashboard() {
+  const user = useAuthStore((s) => s.user);
+  const { data, error, loading, reload } = useFetch("/customer/bookings?limit=50");
+  const [mail, setMail] = useState("");
+
+  const resend = async () => {
+    try { await api.post("/auth/request-verification", { email: user.email }); setMail("Verification email sent."); }
+    catch (e) { setMail(errMsg(e)); }
+  };
+
+  return (
+    <Container as="main" className="py-8">
+      <h1 className="text-3xl text-primary">Welcome, {(user?.fullName || "traveller").split(" ")[0]}</h1>
+
+      {data && (() => {
+        const items = data.items;
+        const open = (b) => ["pending_review", "awaiting_payment"].includes(b.booking_status);
+        const stats = [
+          ["Total bookings", data.pagination.total],
+          ["Confirmed", items.filter((b) => b.booking_status === "confirmed").length],
+          ["Awaiting payment", items.filter((b) => open(b) && ["unpaid", "failed", "pending"].includes(b.payment_status)).length],
+        ];
+        return (
+          <div className="mt-6 grid grid-cols-3 gap-4">
+            {stats.map(([l, v]) => (
+              <div key={l} className="rounded-2xl border border-border bg-white p-5">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted">{l}</p>
+                <p className="mt-2 font-display text-3xl font-semibold text-primary">{v}</p>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {user && !user.emailVerifiedAt && (
+        <div className="mt-6 rounded-2xl border border-gold/50 bg-gold/15 p-4 text-sm text-primary-dark">
+          Your email isn&apos;t verified yet.{" "}
+          <button onClick={resend} className="font-semibold underline">Send verification email</button>
+          {mail && <span role="status" className="ml-2">{mail}</span>}
+        </div>
+      )}
+
+      <div className="mt-10 flex items-center justify-between">
+        <h2 className="text-xl text-primary">Recent bookings</h2>
+        <Link href="/bookings" className="text-sm font-semibold text-accent link-underline">View all</Link>
+      </div>
+      <div className="mt-4 space-y-3">
+        {loading ? <Loading /> : error ? <ErrorBox error={error} onRetry={reload} /> :
+          !data.items.length ? <Empty>No bookings yet. <Link href="/tours" className="font-semibold text-primary underline">Browse tours</Link></Empty> :
+          data.items.slice(0, 3).map((b) => (
+            <Link key={b.id} href={`/bookings/${b.id}`} className="lift flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-white p-5">
+              <div>
+                <p className="font-semibold text-primary">{b.booking_reference}</p>
+                <p className="text-sm text-muted">{formatDate(b.created_at)} · {b.traveler_count} traveller(s)</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <StatusBadge value={b.booking_status} /><StatusBadge value={b.payment_status} />
+                <span className="font-semibold text-primary">{money(b.total_amount, b.currency_code)}</span>
+              </div>
+            </Link>
+          ))}
+      </div>
+    </Container>
+  );
+}
+
+===== FILE: frontend/src/app/(customer)/bookings/page.js =====
+"use client";
+import { useState } from "react";
+import Link from "next/link";
+import Container from "@/components/ui/Container";
+import StatusBadge from "@/components/ui/StatusBadge";
+import { Loading, ErrorBox, Empty } from "@/components/account/State";
+import useFetch from "@/hooks/useFetch";
+import { money, formatDate } from "@/lib/format";
+
+export default function BookingList() {
+  const [page, setPage] = useState(1);
+  const { data, error, loading, reload } = useFetch(`/customer/bookings?page=${page}&limit=10`);
+
+  return (
+    <Container as="main" className="py-8">
+      <h1 className="text-3xl text-primary">My bookings</h1>
+      <div className="mt-6 space-y-3">
+        {loading ? <Loading /> : error ? <ErrorBox error={error} onRetry={reload} /> :
+          !data.items.length ? <Empty>No bookings yet. <Link href="/tours" className="font-semibold text-primary underline">Browse tours</Link></Empty> :
+          data.items.map((b) => (
+            <Link key={b.id} href={`/bookings/${b.id}`} className="lift flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-white p-5">
+              <div>
+                <p className="font-semibold text-primary">{b.booking_reference}</p>
+                <p className="text-sm text-muted">{formatDate(b.created_at)} · {b.traveler_count} traveller(s)</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <StatusBadge value={b.booking_status} /><StatusBadge value={b.payment_status} />
+                <span className="font-semibold text-primary">{money(b.total_amount, b.currency_code)}</span>
+              </div>
+            </Link>
+          ))}
+      </div>
+      {data?.pagination?.totalPages > 1 && (
+        <div className="mt-6 flex items-center justify-center gap-4 text-sm">
+          <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded-full border border-primary px-4 py-2 text-primary disabled:opacity-40">Previous</button>
+          <span>Page {page} of {data.pagination.totalPages}</span>
+          <button disabled={page >= data.pagination.totalPages} onClick={() => setPage(page + 1)} className="rounded-full border border-primary px-4 py-2 text-primary disabled:opacity-40">Next</button>
+        </div>
+      )}
+    </Container>
+  );
+}
+
+===== FILE: frontend/src/app/(customer)/bookings/[id]/page.js =====
+import BookingDetail from "@/components/account/BookingDetail";
+
+export default async function Page({ params }) {
+  const { id } = await params;
+  return <BookingDetail id={id} />;
+}
+
+===== FILE: frontend/src/app/(customer)/payments/page.js =====
+"use client";
+import Container from "@/components/ui/Container";
+import StatusBadge from "@/components/ui/StatusBadge";
+import { Loading, ErrorBox, Empty } from "@/components/account/State";
+import useFetch from "@/hooks/useFetch";
+import { money, formatDate } from "@/lib/format";
+
+export default function PaymentList() {
+  const { data, error, loading, reload } = useFetch("/customer/payments?limit=20");
+  const refunds = useFetch("/customer/refunds?limit=20");
+  return (
+    <Container as="main" className="py-8">
+      <h1 className="text-3xl text-primary">Payments</h1>
+      <div className="mt-6 space-y-3">
+        {loading ? <Loading /> : error ? <ErrorBox error={error} onRetry={reload} /> :
+          !data.items.length ? <Empty>No payments yet.</Empty> :
+          data.items.map((p) => (
+            <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-white p-5">
+              <div>
+                <p className="font-semibold text-primary">{p.booking_reference}</p>
+                <p className="text-sm text-muted">{formatDate(p.created_at)} · {p.provider}</p>
+              </div>
+              <div className="flex items-center gap-3"><StatusBadge value={p.status} /><span className="font-semibold text-primary">{money(p.amount, p.currency_code)}</span></div>
+            </div>
+          ))}
+      </div>
+      {refunds.data?.items?.length > 0 && (
+        <>
+          <h2 className="mt-10 text-xl text-primary">Refunds</h2>
+          <div className="mt-3 space-y-3">
+            {refunds.data.items.map((r) => (
+              <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-white p-5">
+                <div><p className="font-semibold text-primary">{r.booking_reference}</p><p className="text-sm text-muted">{formatDate(r.created_at)}{r.reason ? ` · ${r.reason}` : ""}</p></div>
+                <div className="flex items-center gap-3"><StatusBadge value={r.status} /><span className="font-semibold text-primary">{money(r.amount, r.currency_code)}</span></div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Container>
+  );
+}
+
+===== FILE: frontend/src/app/(customer)/payment-result/page.js =====
+import { Suspense } from "react";
+import PaymentResult from "@/components/account/PaymentResult";
+export default function Page() { return <Suspense fallback={null}><PaymentResult /></Suspense>; }
+
+===== FILE: frontend/src/app/(customer)/wishlist/page.js =====
+"use client";
+import { useState } from "react";
+import Link from "next/link";
+import Image from "@/components/ui/RemoteImage";
+import Container from "@/components/ui/Container";
+import { Loading, ErrorBox, Empty } from "@/components/account/State";
+import useFetch from "@/hooks/useFetch";
+import api from "@/lib/axios";
+import { money } from "@/lib/format";
+import { errMsg } from "@/lib/errors";
+
+export default function Wishlist() {
+  const { data, error, loading, reload } = useFetch("/me/wishlist?limit=50");
+  const [err, setErr] = useState("");
+
+  const remove = async (tourId) => {
+    setErr("");
+    try { await api.delete(`/me/wishlist/${tourId}`); reload(); } catch (e) { setErr(errMsg(e)); }
+  };
+
+  return (
+    <Container as="main" className="py-8">
+      <h1 className="text-3xl text-primary">Wishlist</h1>
+      {err && <p role="alert" className="mt-3 text-sm text-terracotta">{err}</p>}
+      <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        {loading ? <Loading /> : error ? <ErrorBox error={error} onRetry={reload} /> :
+          !data.length ? <div className="sm:col-span-3"><Empty>Nothing saved yet. <Link href="/tours" className="font-semibold text-primary underline">Browse tours</Link></Empty></div> :
+          data.map((t) => (
+            <div key={t.tour_id} className="overflow-hidden rounded-2xl border border-border bg-white">
+              {t.cover_image_url && <div className="relative h-40"><Image src={t.cover_image_url} alt="" fill sizes="33vw" className="object-cover" /></div>}
+              <div className="p-5">
+                <Link href={`/tours/${t.slug}`} className="text-lg font-semibold text-primary link-underline">{t.title}</Link>
+                <p className="mt-1 text-sm text-muted">{t.duration_days} days · {money(t.base_price, t.currency_code)}</p>
+                <button onClick={() => remove(t.tour_id)} className="mt-3 text-sm font-semibold text-terracotta underline">Remove</button>
+              </div>
+            </div>
+          ))}
+      </div>
+    </Container>
+  );
+}
+
+===== FILE: frontend/src/components/account/CustomerShell.jsx =====
+"use client";
+import { usePathname } from "next/navigation";
+import DashboardShell from "@/components/dashboard/DashboardShell";
+import useAccess from "@/hooks/useAccess";
+import { CUSTOMER_NAV } from "@/lib/navigation";
+
+const BARE = ["/booking", "/payment-result"]; // checkout pages keep the marketing site chrome
+
+export default function CustomerShell({ children }) {
+  const pathname = usePathname();
+  const a = useAccess();
+  if (BARE.includes(pathname)) return children;
+  return (
+    <DashboardShell groups={CUSTOMER_NAV} label="My account" topLink={a.isStaff ? { href: "/admin", label: "Admin panel" } : null}>
+      {children}
+    </DashboardShell>
+  );
+}
+
+===== FILE: frontend/src/components/account/BookingDetail.jsx =====
+"use client";
+import Link from "next/link";
+import Container from "@/components/ui/Container";
+import StatusBadge from "@/components/ui/StatusBadge";
+import { Loading, ErrorBox } from "./State";
+import useFetch from "@/hooks/useFetch";
+import { money, formatDate, titleCase } from "@/lib/format";
+import PayPanel from "./PayPanel";
+import CancelRequest from "./CancelRequest";
+import ReviewPrompt from "./ReviewPrompt";
+
+const snap = (v) => { try { return typeof v === "string" ? JSON.parse(v) : v || {}; } catch { return {}; } };
+
+export default function BookingDetail({ id }) {
+  const { data, error, loading, reload } = useFetch(`/customer/bookings/${encodeURIComponent(id)}`);
+  if (loading) return <Container className="py-8"><Loading /></Container>;
+  if (error) return <Container className="py-8"><ErrorBox error={error} onRetry={reload} /></Container>;
+
+  const { booking: b, items, travelers, change_requests, notes } = data;
+  return (
+    <Container as="main" className="py-8">
+      <Link href="/bookings" className="text-sm text-accent link-underline">← All bookings</Link>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-3xl text-primary">{b.booking_reference}</h1>
+        <div className="flex gap-2"><StatusBadge value={b.booking_status} /><StatusBadge value={b.payment_status} /></div>
+      </div>
+
+      <PayPanel booking={b} reload={reload} />
+
+      <section className="mt-8 space-y-3">
+        <h2 className="text-xl text-primary">Tour</h2>
+        {items.map((it) => (
+          <div key={it.id} className="rounded-2xl border border-border bg-white p-5">
+            <p className="font-semibold text-primary">{snap(it.tour_snapshot).title || `Tour #${it.tour_id}`}</p>
+            <p className="text-sm text-muted">Departs {formatDate(it.starts_at)} · {it.quantity} × {money(it.unit_price, b.currency_code)}</p>
+            <p className="mt-1 text-right font-semibold text-primary">{money(it.line_total, b.currency_code)}</p>
+          </div>
+        ))}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-xl text-primary">Travellers</h2>
+        <ul className="mt-3 divide-y divide-border rounded-2xl border border-border bg-white">
+          {travelers.map((t) => (
+            <li key={t.id} className="flex justify-between px-5 py-3 text-sm"><span>{t.traveler_name}</span><span className="text-muted">{titleCase(t.traveler_type)}{t.nationality ? ` · ${t.nationality}` : ""}</span></li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="mt-8 ml-auto max-w-xs space-y-1 text-sm">
+        <div className="flex justify-between"><span>Subtotal</span><span>{money(b.subtotal, b.currency_code)}</span></div>
+        {Number(b.discount_amount) > 0 && <div className="flex justify-between text-accent"><span>Discount</span><span>−{money(b.discount_amount, b.currency_code)}</span></div>}
+        {Number(b.tax_amount) > 0 && <div className="flex justify-between"><span>Tax</span><span>{money(b.tax_amount, b.currency_code)}</span></div>}
+        <div className="flex justify-between border-t border-border pt-2 text-lg font-semibold text-primary"><span>Total</span><span>{money(b.total_amount, b.currency_code)}</span></div>
+      </section>
+
+      <CancelRequest booking={b} requests={change_requests} reload={reload} />
+      <ReviewPrompt booking={b} items={items} />
+      {notes.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-xl text-primary">Messages from our team</h2>
+          <ul className="mt-3 space-y-2">{notes.map((n) => <li key={n.id} className="rounded-xl bg-white p-4 text-sm"><span className="text-muted">{formatDate(n.created_at)}</span><br />{n.note}</li>)}</ul>
+        </section>
+      )}
+    </Container>
+  );
+}
+
+===== FILE: frontend/src/components/account/CancelRequest.jsx =====
+"use client";
+import { useState } from "react";
+import StatusBadge from "@/components/ui/StatusBadge";
+import { useToast } from "@/components/ui/ToastProvider";
+import api from "@/lib/axios";
+import { formatDate } from "@/lib/format";
+import { errMsg } from "@/lib/errors";
+
+const parse = (v) => { try { return typeof v === "string" ? JSON.parse(v) : v || {}; } catch { return {}; } };
+const CANCELLABLE = ["pending_review", "awaiting_payment", "confirmed"];
+
+export default function CancelRequest({ booking: b, requests = [], reload }) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const pending = requests.find((r) => r.status === "pending");
+  const canRequest = CANCELLABLE.includes(b.booking_status) && !pending;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setError("");
+    try {
+      await api.post(`/customer/bookings/${b.id}/cancellation-request`, { reason: reason.trim() });
+      setOpen(false);
+      setReason("");
+      toast.success("Cancellation request submitted. Our team will review it shortly.");
+      await reload();
+    } catch (err) {
+      const m = errMsg(err);
+      setError(m);
+      toast.error(m);
+    } finally { setBusy(false); }
+  };
+
+  if (!canRequest && !requests.length) return null;
+  return (
+    <section className="mt-8 rounded-2xl border border-border bg-white p-5">
+      <h2 className="text-xl text-primary">Cancellation</h2>
+      {requests.map((r) => (
+        <div key={r.id} className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+          <StatusBadge value={r.status} />
+          <span className="text-muted">Requested {formatDate(r.created_at)}: &ldquo;{parse(r.request_details).reason}&rdquo;</span>
+        </div>
+      ))}
+      {pending && <p className="mt-3 text-sm text-muted">We&apos;re reviewing your request. Any refund follows the tour&apos;s cancellation policy.</p>}
+      {canRequest && !open && (
+        <button onClick={() => setOpen(true)} className="mt-4 text-sm font-semibold text-terracotta underline">Request cancellation</button>
+      )}
+      {open && (
+        <form onSubmit={submit} className="mt-4 space-y-3">
+          <textarea required maxLength={2000} rows={4} value={reason} onChange={(e) => setReason(e.target.value)}
+            placeholder="Why do you want to cancel?" aria-label="Reason"
+            className="w-full rounded-xl border border-border px-4 py-3 text-sm outline-none focus:border-accent" />
+          {error && <p role="alert" className="text-sm text-terracotta">{error}</p>}
+          <div className="flex gap-3">
+            <button disabled={busy || !reason.trim()} className="rounded-full bg-terracotta px-5 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Sending…" : "Send request"}</button>
+            <button type="button" onClick={() => setOpen(false)} className="text-sm font-semibold text-primary underline">Keep my booking</button>
+          </div>
+        </form>
+      )}
+    </section>
+  );
+}
+
+===== FILE: frontend/src/components/account/PayPanel.jsx =====
+"use client";
+import { useState } from "react";
+import api from "@/lib/axios";
+import useCountdown from "@/hooks/useCountdown";
+import { money } from "@/lib/format";
+import { errMsg } from "@/lib/errors";
+
+const slot = (id) => `bb_pay_key_${id}`;
+const fresh = () => crypto.randomUUID();
+function getKey(id) {
+  try {
+    let k = sessionStorage.getItem(slot(id));
+    if (!k) { k = fresh(); sessionStorage.setItem(slot(id), k); }
+    return k;
+  } catch { return fresh(); }
+}
+function rotateKey(id) {
+  const k = fresh();
+  try { sessionStorage.setItem(slot(id), k); } catch {}
+  return k;
+}
+
+export default function PayPanel({ booking: b, reload }) {
+  const { text, expired } = useCountdown(b.expires_at);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState({ type: "", text: "" });
+
+  const open = ["pending_review", "awaiting_payment"].includes(b.booking_status);
+  const payable = ["unpaid", "failed", "pending"].includes(b.payment_status);
+  if (!open || !payable) return null;
+
+  const hasCoupon = Number(b.discount_amount) > Number(b.member_discount_amount || 0);
+  const notBdt = b.currency_code !== "BDT";
+
+  const run = async (name, fn) => {
+    setBusy(name); setMsg({ type: "", text: "" });
+    try { await fn(); } catch (e) { setMsg({ type: "error", text: errMsg(e) }); } finally { setBusy(""); }
+  };
+
+  const applyCoupon = (e) => {
+    e.preventDefault();
+    run("coupon", async () => {
+      await api.post(`/bookings/${b.id}/coupon`, { code: code.trim() });
+      setCode(""); setMsg({ type: "ok", text: "Coupon applied." }); await reload();
+    });
+  };
+  const removeCoupon = () => run("coupon", async () => {
+    await api.delete(`/bookings/${b.id}/coupon`); setMsg({ type: "ok", text: "Coupon removed." }); await reload();
+  });
+
+  const pay = () => run("pay", async () => {
+    const post = (key) => api.post(`/customer/bookings/${b.id}/payments/sslcommerz`, { idempotency_key: key });
+    let res;
+    try { res = await post(getKey(b.id)); }
+    catch (e) {
+      // A finished/failed attempt keeps its key but has no reusable URL: start a new attempt
+      if (e.response?.status === 409 && /no reusable checkout/i.test(errMsg(e))) res = await post(rotateKey(b.id));
+      else throw e;
+    }
+    const d = res.data?.data || {};
+    const url = d.gateway_url || d.gatewayPageURL;
+    let ok = false;
+    try { const u = new URL(url); ok = u.protocol === "https:" && u.hostname.endsWith("sslcommerz.com"); } catch {}
+    if (!ok) throw new Error("The payment gateway returned an unexpected address.");
+    window.location.assign(url);
+  });
+
+  return (
+    <section className="mt-6 rounded-3xl border border-gold/50 bg-gold/10 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl text-primary">Complete your payment</h2>
+        {text && (
+          <p className={`rounded-full px-4 py-1 text-sm font-semibold ${expired ? "bg-terracotta/15 text-terracotta" : "bg-white text-primary"}`} role="timer">
+            {expired ? "Seat hold expired" : `Seats held for ${text}`}
+          </p>
+        )}
+      </div>
+
+      {expired ? (
+        <p className="mt-4 text-sm text-primary-dark">Your hold has expired, so these seats may have been released. Please start a new booking.</p>
+      ) : (
+        <>
+          <form onSubmit={applyCoupon} className="mt-5 flex flex-wrap items-end gap-3">
+            <label className="text-sm font-medium">Coupon code
+              <input value={code} onChange={(e) => setCode(e.target.value)} maxLength={40} autoCapitalize="characters"
+                className="mt-1 block w-48 rounded-xl border border-border bg-white px-4 py-2.5 uppercase outline-none focus:border-accent" />
+            </label>
+            <button disabled={!code.trim() || busy === "coupon"} className="rounded-full border border-primary px-5 py-2.5 text-sm font-semibold text-primary disabled:opacity-40">Apply</button>
+            {hasCoupon && <button type="button" onClick={removeCoupon} disabled={busy === "coupon"} className="text-sm font-semibold text-terracotta underline">Remove coupon</button>}
+          </form>
+
+          {notBdt && <p className="mt-4 text-sm text-terracotta">Online payment is available for BDT bookings only. Please contact us to pay.</p>}
+          {msg.text && <p role={msg.type === "error" ? "alert" : "status"} className={`mt-3 text-sm ${msg.type === "error" ? "text-terracotta" : "text-primary"}`}>{msg.text}</p>}
+
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+            <p className="text-lg font-semibold text-primary">Total: {money(b.total_amount, b.currency_code)}</p>
+            <button onClick={pay} disabled={busy === "pay" || notBdt} data-burst
+              className="btn-gold rounded-full px-8 py-3 font-semibold disabled:opacity-60">
+              {busy === "pay" ? "Redirecting…" : b.payment_status === "pending" ? "Continue to payment" : "Pay securely"}
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-muted">You&apos;ll be redirected to SSLCommerz. We never see your card or mobile-banking details.</p>
+        </>
+      )}
+    </section>
+  );
+}
+
+===== FILE: frontend/src/components/account/PaymentResult.jsx =====
+"use client";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import Container from "@/components/ui/Container";
+import StatusBadge from "@/components/ui/StatusBadge";
+import api from "@/lib/axios";
+import { money } from "@/lib/format";
+
+const copy = {
+  succeeded: ["Payment confirmed", "Thank you! Your booking is paid. A confirmation will follow once our team reviews it."],
+  pending: ["Confirming your payment…", "This usually takes a few seconds. You can safely leave this page."],
+  initiated: ["Confirming your payment…", "This usually takes a few seconds. You can safely leave this page."],
+  failed: ["Payment failed", "You have not been charged. You can try again from your booking."],
+  cancelled: ["Payment cancelled", "No payment was taken. You can try again from your booking."],
+};
+
+export default function PaymentResult() {
+  const hint = useSearchParams().get("status"); // informational only
+  const [payment, setPayment] = useState(null);
+  const [tries, setTries] = useState(0);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    let timer;
+    const check = async (n) => {
+      try {
+        const res = await api.get("/customer/payments?limit=1");
+        const p = res.data?.data?.items?.[0] || null;
+        if (!alive) return;
+        setPayment(p); setTries(n);
+        const unsettled = !p || ["initiated", "pending"].includes(p.status);
+        if (unsettled && hint === "success" && n < 8) timer = setTimeout(() => check(n + 1), 3000);
+      } catch { if (alive) setFailed(true); }
+    };
+    check(1);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [hint]);
+
+  const key = payment?.status || (hint === "failed" ? "failed" : hint === "cancelled" ? "cancelled" : "pending");
+  const [title, text] = copy[key] || copy.pending;
+  const stillWaiting = ["pending", "initiated"].includes(key) && hint === "success" && tries >= 8;
+
+  return (
+    <Container as="main" className="py-14">
+      <div className="mx-auto max-w-lg rounded-3xl border border-border bg-white p-8 text-center shadow-sm">
+        <h1 className="text-3xl text-primary">{title}</h1>
+        <p className="mt-3 text-muted">{failed ? "We could not load your payment status. Check your payments page." : stillWaiting ? "We haven't received the bank's confirmation yet. Check your payments page shortly." : text}</p>
+        {payment && (
+          <div className="mt-6 flex items-center justify-center gap-3 text-sm">
+            <StatusBadge value={payment.status} /><span className="font-semibold text-primary">{money(payment.amount, payment.currency_code)}</span><span className="text-muted">{payment.booking_reference}</span>
+          </div>
+        )}
+        <div className="mt-8 flex justify-center gap-3">
+          <Link href="/bookings" className="btn-gold rounded-full px-6 py-3 text-sm font-semibold">My bookings</Link>
+          <Link href="/payments" className="rounded-full border border-primary px-6 py-3 text-sm font-semibold text-primary">Payments</Link>
+        </div>
+      </div>
+    </Container>
+  );
+}
+
+===== FILE: frontend/src/components/account/ReviewPrompt.jsx =====
+"use client";
+import { useState } from "react";
+import api from "@/lib/axios";
+import { errMsg } from "@/lib/errors";
+
+function One({ bookingId, item }) {
+  const title = (() => { try { return (typeof item.tour_snapshot === "string" ? JSON.parse(item.tour_snapshot) : item.tour_snapshot)?.title; } catch { return null; } })() || `Tour #${item.tour_id}`;
+  const [rating, setRating] = useState(0);
+  const [text, setText] = useState("");
+  const [state, setState] = useState({ busy: false, done: false, error: "" });
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setState({ busy: true, done: false, error: "" });
+    try {
+      await api.post(`/tours/${item.tour_id}/reviews`, { rating, bookingId, ...(text.trim() && { reviewText: text.trim() }) });
+      setState({ busy: false, done: true, error: "" });
+    } catch (err) { setState({ busy: false, done: false, error: errMsg(err) }); }
+  };
+
+  if (state.done) return <p role="status" className="rounded-xl bg-accent/10 p-4 text-sm text-primary">Thank you! Your review for {title} will appear once our team has checked it.</p>;
+  return (
+    <form onSubmit={submit} className="space-y-3 rounded-2xl border border-border bg-white p-5">
+      <p className="font-semibold text-primary">How was {title}?</p>
+      <div role="radiogroup" aria-label="Rating" className="flex gap-1 text-3xl">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button key={n} type="button" role="radio" aria-checked={rating === n} aria-label={`${n} star${n > 1 ? "s" : ""}`} onClick={() => setRating(n)} className={n <= rating ? "text-gold" : "text-border"}>★</button>
+        ))}
+      </div>
+      <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={5000} rows={4} aria-label="Your review (optional)" placeholder="Tell other travellers what it was like (optional)"
+        className="w-full rounded-xl border border-border px-4 py-3 text-sm outline-none focus:border-accent" />
+      {state.error && <p role="alert" className="text-sm text-terracotta">{state.error}</p>}
+      <button disabled={!rating || state.busy} className="btn-gold rounded-full px-6 py-2.5 text-sm font-semibold disabled:opacity-50">{state.busy ? "Sending…" : "Submit review"}</button>
+    </form>
+  );
+}
+
+export default function ReviewPrompt({ booking, items }) {
+  if (booking.booking_status !== "completed") return null;
+  return (
+    <section className="mt-8 space-y-4">
+      <h2 className="text-xl text-primary">Review your trip</h2>
+      {items.map((it) => <One key={it.id} bookingId={booking.id} item={it} />)}
+    </section>
+  );
+}
+
+===== FILE: frontend/src/components/account/State.jsx =====
+import { errMsg } from "@/lib/errors";
+
+export function Loading() { return <p role="status" className="py-10 text-muted">Loading…</p>; }
+export function ErrorBox({ error, onRetry }) {
+  return (
+    <div role="alert" className="rounded-2xl border border-terracotta/30 bg-terracotta/10 p-5 text-sm text-terracotta">
+      {errMsg(error)} {onRetry && <button onClick={onRetry} className="ml-2 font-semibold underline">Retry</button>}
+    </div>
+  );
+}
+export function Empty({ children }) { return <p className="rounded-2xl border border-dashed border-border bg-white p-8 text-center text-muted">{children}</p>; }
+
+===== FILE: frontend/src/components/dashboard/DashboardShell.jsx =====
+"use client";
+import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { siteConfig } from "@/config/site";
+import { authService } from "@/services/auth.service";
+import { useAuthStore } from "@/store/useAuthStore";
+
+const split = (href) => { const [path, q = ""] = href.split("?"); return { path, q: new URLSearchParams(q) }; };
+
+function Nav({ groups, onNavigate }) {
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const [open, setOpen] = useState({});
+  const flat = groups.flatMap((g) => g.items);
+
+  const matches = (i) => {
+    const { path, q } = split(i.href);
+    if (pathname !== path) return !i.href.includes("?") && !i.exact && pathname.startsWith(`${path}/`);
+    for (const [k, v] of q) if (sp.get(k) !== v) return false;
+    return true;
+  };
+  const queryHit = flat.some((i) => i.href.includes("?") && matches(i));
+  const active = (i) => (i.href.includes("?") ? matches(i) : matches(i) && !(queryHit && split(i.href).path === pathname));
+
+  return (
+    <nav aria-label="Dashboard" className="space-y-1 px-3 pb-8">
+      {groups.map((g) => {
+        const isOpen = open[g.title] ?? (g.defaultOpen || g.items.some(active));
+        return (
+          <div key={g.title}>
+            <button type="button" onClick={() => setOpen({ ...open, [g.title]: !isOpen })} aria-expanded={isOpen}
+              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-sand/60 hover:text-sand">
+              {g.title}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`transition-transform ${isOpen ? "rotate-180" : ""}`}><path d="M6 9l6 6 6-6" /></svg>
+            </button>
+            {isOpen && (
+              <ul className="mb-2 space-y-0.5">
+                {g.items.map((i) => (
+                  <li key={i.href}>
+                    <Link href={i.href} onClick={onNavigate} aria-current={active(i) ? "page" : undefined}
+                      className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${active(i) ? "bg-gold font-semibold text-primary-dark" : "text-sand/90 hover:bg-white/10"}`}>
+                      {i.label}
+                      {i.status === "soon" && <span className="rounded bg-white/15 px-1.5 text-[10px] uppercase">Soon</span>}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+export default function DashboardShell({ groups, label, topLink, children }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const [drawer, setDrawer] = useState(false);
+  useEffect(() => setDrawer(false), [pathname]);
+
+  const crumbs = pathname.split("/").filter(Boolean).map((s) => (/^\d+$/.test(s) ? `#${s}` : s.replace(/-/g, " ")));
+  const initial = (user?.fullName || user?.email || "?")[0].toUpperCase();
+
+  const sidebar = (
+    <div className="flex h-full flex-col bg-primary-dark">
+      <div className="px-6 py-5">
+        <Link href="/" className="font-display text-xl text-white">{siteConfig.name}</Link>
+        <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.2em] text-gold">{label}</p>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        <Suspense fallback={null}><Nav groups={groups} onNavigate={() => setDrawer(false)} /></Suspense>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-background lg:grid lg:grid-cols-[260px_1fr]">
+      <aside className="sticky top-0 hidden h-screen lg:block">{sidebar}</aside>
+
+      {drawer && (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
+          <button className="absolute inset-0 bg-black/50" aria-label="Close menu" onClick={() => setDrawer(false)} />
+          <div className="absolute inset-y-0 left-0 w-72 shadow-2xl">{sidebar}</div>
+        </div>
+      )}
+
+      <div className="min-w-0">
+        <header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-4 border-b border-border bg-white/85 px-4 backdrop-blur sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <button className="grid h-9 w-9 place-items-center rounded-lg border border-border lg:hidden" aria-label="Open menu" onClick={() => setDrawer(true)}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+            </button>
+            <nav aria-label="Breadcrumb" className="truncate text-sm capitalize text-muted">{crumbs.join(" / ")}</nav>
+          </div>
+          <div className="flex items-center gap-4 text-sm">
+            {topLink && <Link href={topLink.href} className="hidden font-semibold text-accent sm:inline">{topLink.label}</Link>}
+            <Link href="/" className="hidden text-muted hover:text-primary sm:inline">View site ↗</Link>
+            <span className="hidden items-center gap-2 sm:flex">
+              <span className="grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-bold text-white" aria-hidden="true">{initial}</span>
+              <span className="max-w-[10rem] truncate font-medium text-primary">{user?.fullName || user?.email}</span>
+            </span>
+            <button onClick={async () => { await authService.logout(); router.push("/"); }} className="font-semibold text-terracotta">Log out</button>
+          </div>
+        </header>
+        <div>{children}</div>
+      </div>
+    </div>
+  );
+}

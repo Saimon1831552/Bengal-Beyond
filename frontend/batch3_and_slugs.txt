@@ -1,0 +1,813 @@
+﻿
+
+===== FILE: frontend/src/app/(public)/destinations/[slug]/page.js =====
+import { notFound } from "next/navigation";
+import Link from "next/link";
+import Container from "@/components/ui/Container";
+import Image from "@/components/ui/RemoteImage";
+import { buildMetadata } from "@/lib/seo";
+import { destinationJsonLd } from "@/lib/jsonld";
+import { getDestination, getDestinations, getToursByDestination } from "@/services/content";
+import JsonLd from "@/components/seo/JsonLd";
+import Breadcrumbs from "@/components/seo/Breadcrumbs";
+import { formatPrice } from "@/lib/format";
+
+export const revalidate = 300;
+
+export async function generateStaticParams() {
+  try {
+    return (await getDestinations()).map((d) => ({ slug: d.slug }));
+  } catch {
+    return [];
+  }
+}
+
+export async function generateMetadata({ params }) {
+  const { slug } = await params;
+  const d = await getDestination(slug);
+  if (!d) return {};
+  return buildMetadata({
+    title: `${d.name}, Bangladesh: Travel Guide & Tours`,
+    description: d.summary,
+    path: `/destinations/${d.slug}`,
+    image: d.image,
+    keywords: [d.name, d.region, "Bangladesh travel", "Bangladesh tours", ...(d.interests || [])].filter(Boolean),
+  });
+}
+
+export default async function DestinationPage({ params }) {
+  const { slug } = await params;
+  const d = await getDestination(slug);
+  if (!d) notFound();
+  const related = await getToursByDestination(d.slug);
+
+  return (
+    <main>
+      <Container className="pt-6">
+        <Breadcrumbs
+          items={[
+            { name: "Home", path: "/" },
+            { name: "Destinations", path: "/destinations" },
+            { name: d.name, path: `/destinations/${d.slug}` },
+          ]}
+        />
+      </Container>
+
+      <Container className="py-8">
+        <div className="max-w-3xl">
+          {d.region && (
+            <p className="text-xs font-bold uppercase tracking-widest text-accent">{d.region}</p>
+          )}
+          <h1 className="mt-2 font-display text-4xl text-primary md:text-5xl">{d.name}</h1>
+          {d.summary && <p className="mt-4 text-lg leading-relaxed text-foreground/80">{d.summary}</p>}
+        </div>
+
+        {d.image && (
+          <div className="relative mt-8 aspect-[16/9] max-h-[480px] overflow-hidden rounded-3xl">
+            <Image src={d.image} alt={d.name} fill priority className="object-cover" />
+          </div>
+        )}
+
+        {related.length > 0 && (
+          <section aria-labelledby="rt" className="mt-12">
+            <h2 id="rt" className="font-display text-2xl text-primary">
+              Tours featuring {d.name}
+            </h2>
+            <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {related.map((t) => (
+                <Link
+                  key={t.slug}
+                  href={`/tours/${t.slug}`}
+                  className="group overflow-hidden rounded-2xl border border-border bg-white transition hover:border-accent"
+                >
+                  {t.image && (
+                    <div className="relative aspect-[16/10] overflow-hidden">
+                      <Image
+                        src={t.image}
+                        alt={t.title}
+                        fill
+                        className="object-cover transition duration-500 group-hover:scale-105"
+                      />
+                    </div>
+                  )}
+                  <div className="p-5">
+                    <p className="text-xs text-muted">{t.days} {t.days === 1 ? "day" : "days"}</p>
+                    <h3 className="mt-1 font-display text-lg text-primary group-hover:text-accent">{t.title}</h3>
+                    {t.price != null && (
+                      <p className="mt-3 text-sm font-semibold text-primary">
+                        From {formatPrice(t.price, t.currency)}
+                      </p>
+                    )}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
+      </Container>
+      <JsonLd data={destinationJsonLd(d)} />
+    </main>
+  );
+}
+
+===== FILE: frontend/src/app/(public)/tours/[slug]/page.js =====
+import { notFound } from "next/navigation";
+import Link from "next/link";
+import Container from "@/components/ui/Container";
+import Image from "@/components/ui/RemoteImage";
+import Stars from "@/components/ui/Stars";
+import JsonLd from "@/components/seo/JsonLd";
+import Breadcrumbs from "@/components/seo/Breadcrumbs";
+import WishlistButton from "@/components/tours/WishlistButton";
+import { buildMetadata } from "@/lib/seo";
+import { tourJsonLd } from "@/lib/jsonld";
+import { formatDate, formatPrice } from "@/lib/format";
+import { getTour, getTours, getTourReviews, getTourDepartures } from "@/services/content";
+
+export const revalidate = 300;
+
+export async function generateStaticParams() {
+  try {
+    return (await getTours()).map((t) => ({ slug: t.slug }));
+  } catch {
+    return [];
+  }
+}
+
+export async function generateMetadata({ params }) {
+  const { slug } = await params;
+  const t = await getTour(slug);
+  if (!t) return {};
+  return buildMetadata({
+    title: `${t.title} (${t.days} ${t.days === 1 ? "day" : "days"})`,
+    description: t.summary,
+    path: `/tours/${t.slug}`,
+    image: t.image,
+    keywords: [t.title, t.destination, ...(t.categories || []), ...(t.tags || []), "Bangladesh tour"].filter(Boolean),
+  });
+}
+
+export default async function TourPage({ params }) {
+  const { slug } = await params;
+  const t = await getTour(slug);
+  if (!t) notFound();
+  const [reviews, deps] = await Promise.all([getTourReviews(t.id), getTourDepartures(t.id)]);
+  const { total, averageRating } = reviews.summary;
+  const jsonLd = tourJsonLd({
+    ...t,
+    hasUpcomingDepartures: deps.length > 0,
+    rating: total ? { value: averageRating, count: total } : null,
+  });
+  const paragraphs = (t.description || "").split(/\n{2,}/).filter(Boolean);
+
+  return (
+    <main>
+      <Container className="pt-6">
+        <Breadcrumbs items={[{ name: "Home", path: "/" }, { name: "Tours", path: "/tours" }, { name: t.title, path: `/tours/${t.slug}` }]} />
+      </Container>
+
+      <Container className="grid gap-10 py-6 lg:grid-cols-[1fr_340px]">
+        <div>
+          {t.image && <div className="relative aspect-[16/9] overflow-hidden rounded-3xl"><Image src={t.image} alt={t.title} fill priority className="object-cover" /></div>}
+          <h1 className="mt-6 text-4xl text-primary md:text-5xl">{t.title}</h1>
+          <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
+            <span>{t.days} {t.days === 1 ? "day" : "days"}</span>
+            {t.destination && <span>{t.destination}</span>}
+            {t.categories.map((category) => <span key={category}>{category}</span>)}
+            {t.tags.map((tag) => <span key={tag}>#{tag}</span>)}
+            {total > 0 && <a href="#reviews" className="flex items-center gap-2 text-primary"><Stars value={averageRating} /> {averageRating} ({total})</a>}
+          </p>
+          {t.summary && <p className="mt-5 text-lg text-foreground/80">{t.summary}</p>}
+          <div className="mt-6 space-y-4 text-muted">{paragraphs.map((p, i) => <p key={i}>{p}</p>)}</div>
+          {t.cancellationPolicy && (
+            <section className="mt-8">
+              <h2 className="text-xl font-semibold text-primary">Cancellation policy</h2>
+              <div className="mt-3 space-y-3 whitespace-pre-line text-muted">
+                {t.cancellationPolicy.split(/\n{2,}/).filter(Boolean).map((p, i) => <p key={i}>{p}</p>)}
+              </div>
+            </section>
+          )}
+          {t.destinations.length > 0 && (
+            <p className="mt-6 text-sm">Destinations: {t.destinations.map((s) => <Link key={s} href={`/destinations/${s}`} className="mr-2 font-semibold text-accent underline">{s.replace(/-/g, " ")}</Link>)}</p>
+          )}
+        </div>
+
+        <aside className="h-fit space-y-5 rounded-3xl border border-border bg-white p-6 lg:sticky lg:top-24">
+          {t.price != null && <p><span className="text-sm text-muted">From</span><br /><span className="font-display text-3xl font-semibold text-primary">{formatPrice(t.price, t.currency)}</span> <span className="text-sm text-muted">per person</span></p>}
+          <div>
+            <h2 className="text-sm font-bold uppercase tracking-widest text-muted">Upcoming departures</h2>
+            {deps.length ? (
+              <ul className="mt-2 space-y-1 text-sm">
+                {deps.map((d) => <li key={d.id} className="flex justify-between"><span>{formatDate(d.starts_at)}</span><span className="text-muted">{d.seats_available} seats</span></li>)}
+              </ul>
+            ) : <p className="mt-2 text-sm text-muted">No departures scheduled yet. <Link href="/contact" className="font-semibold text-primary underline">Ask us</Link>.</p>}
+          </div>
+          {deps.length > 0
+            ? <Link href={`/booking?tour=${t.slug}`} rel="nofollow" className="btn-gold block rounded-full px-6 py-3 text-center font-semibold">Book this tour</Link>
+            : <Link href="/contact" className="btn-gold block rounded-full px-6 py-3 text-center font-semibold">Enquire about dates</Link>}
+          <WishlistButton tourId={t.id} slug={t.slug} />
+        </aside>
+      </Container>
+
+      <Container as="section" id="reviews" className="max-w-3xl py-10">
+        {total === 0 ? (
+          <p className="mt-3 text-muted">No reviews yet. Reviews come from travellers who completed this tour.</p>
+        ) : (
+          <>
+            <p className="mt-3 flex items-center gap-3"><Stars value={averageRating} className="text-xl" /><span className="font-semibold text-primary">{averageRating} / 5</span><span className="text-sm text-muted">from {total} review{total === 1 ? "" : "s"}</span></p>
+            <ul className="mt-6 space-y-5">
+              {reviews.items.map((r) => (
+                <li key={r.id} className="rounded-2xl border border-border bg-white p-5">
+                  <div className="flex items-center justify-between"><p className="font-semibold text-primary">{r.reviewerName.split(" ")[0]}</p><Stars value={r.rating} /></div>
+                  {r.reviewText && <p className="mt-2 whitespace-pre-line text-sm text-foreground/80">{r.reviewText}</p>}
+                  {r.adminReply && <p className="mt-3 rounded-xl bg-accent/10 p-3 text-sm"><strong>Reply from Bengal Beyond:</strong> {r.adminReply}</p>}
+                  <p className="mt-2 text-xs text-muted">{formatDate(r.createdAt)}</p>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </Container>
+      <JsonLd data={jsonLd} />
+    </main>
+  );
+}
+
+===== FILE: frontend/src/app/(public)/blog/[slug]/page.js =====
+import { notFound } from "next/navigation";
+import Container from "@/components/ui/Container";
+import { buildMetadata } from "@/lib/seo";
+import { articleJsonLd } from "@/lib/jsonld";
+import { getPost, getPosts } from "@/services/content";
+import Image from "@/components/ui/RemoteImage";
+import JsonLd from "@/components/seo/JsonLd";
+import Breadcrumbs from "@/components/seo/Breadcrumbs";
+import { formatDate } from "@/lib/format";
+
+export const revalidate = 300;
+
+export async function generateStaticParams() {
+  try {
+    return (await getPosts()).map((p) => ({ slug: p.slug }));
+  } catch {
+    return [];
+  }
+}
+
+export async function generateMetadata({ params }) {
+  const { slug } = await params;
+  const p = await getPost(slug);
+  if (!p) return {};
+  return buildMetadata({
+    title: p.title,
+    description: p.excerpt,
+    path: `/blog/${p.slug}`,
+    image: p.image,
+    type: "article",
+    publishedTime: p.publishedAt,
+    modifiedTime: p.updatedAt || p.publishedAt,
+  });
+}
+
+export default async function PostPage({ params }) {
+  const { slug } = await params;
+  const p = await getPost(slug);
+  if (!p) notFound();
+
+  return (
+    <main>
+      <Container className="pt-6">
+        <Breadcrumbs items={[{ name: "Home", path: "/" }, { name: "Blog", path: "/blog" }, { name: p.title, path: `/blog/${p.slug}` }]} />
+      </Container>
+
+      <Container as="article" className="max-w-3xl py-8">
+        <h1 className="font-display text-3xl text-primary md:text-5xl">{p.title}</h1>
+        <p className="mt-3 text-sm text-muted">
+          By {p.author || "Bengal Beyond"} · <time dateTime={p.publishedAt}>{formatDate(p.publishedAt)}</time>
+        </p>
+        {p.image && (
+          <div className="relative my-6 aspect-[16/9] overflow-hidden rounded-3xl">
+            <Image src={p.image} alt={p.title} fill priority className="object-cover" />
+          </div>
+        )}
+        <div className="mt-6 space-y-5 text-base leading-relaxed text-foreground/85">
+          {p.body.split(/\n{2,}/).filter(Boolean).map((para, i) => (
+            <p key={i} className="whitespace-pre-line">{para}</p>
+          ))}
+        </div>
+      </Container>
+      <JsonLd data={articleJsonLd(p)} />
+    </main>
+  );
+}
+
+===== FILE: frontend/src/app/(public)/pages/[slug]/page.js =====
+import { notFound } from "next/navigation";
+import Container from "@/components/ui/Container";
+import Breadcrumbs from "@/components/seo/Breadcrumbs";
+import { buildMetadata } from "@/lib/seo";
+import { formatDate } from "@/lib/format";
+
+export const revalidate = 300;
+
+const API_BASE =
+  process.env.INTERNAL_API_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:5000/api";
+
+async function fetchCmsPage(slug) {
+  try {
+    const res = await fetch(`${API_BASE}/public/pages/${encodeURIComponent(slug)}`, {
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json?.data || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function generateMetadata({ params }) {
+  const { slug } = await params;
+  const page = await fetchCmsPage(slug);
+  if (!page) return {};
+  return buildMetadata({
+    title: page.seo_title || page.title,
+    description: page.seo_description || page.body?.slice(0, 160),
+    path: `/pages/${page.slug}`,
+  });
+}
+
+export default async function CmsPublicPage({ params }) {
+  const { slug } = await params;
+  const data = await fetchCmsPage(slug);
+  if (!data) notFound();
+
+  return (
+    <main>
+      <Container className="pt-6">
+        <Breadcrumbs
+          items={[
+            { name: "Home", path: "/" },
+            { name: data.title, path: `/pages/${data.slug}` },
+          ]}
+        />
+      </Container>
+
+      <Container className="py-10">
+        <article className="mx-auto max-w-3xl rounded-2xl border border-border bg-white p-8 sm:p-10">
+          <h1 className="font-display text-3xl text-primary sm:text-4xl">{data.title}</h1>
+          {data.updated_at && (
+            <p className="mt-2 text-xs text-muted">Last updated {formatDate(data.updated_at)}</p>
+          )}
+
+          <div className="mt-6 space-y-4 whitespace-pre-line text-sm leading-relaxed text-primary">
+            {data.body}
+          </div>
+        </article>
+      </Container>
+    </main>
+  );
+}
+
+===== FILE: frontend/src/app/(auth)/layout.js =====
+import { noIndexMetadata } from "@/lib/seo";
+
+export const metadata = { title: "Account", ...noIndexMetadata };
+
+export default function AuthLayout({ children }) {
+  return <>{children}</>;
+}
+
+
+===== FILE: frontend/src/app/(auth)/sign-in/page.js =====
+import { Suspense } from "react";
+import Container from "@/components/ui/Container";
+import SignInForm from "@/components/auth/SignInForm";
+
+export default function SignInPage() {
+  return (
+    <Container as="main" className="py-10">
+      <Suspense fallback={null}><SignInForm /></Suspense>
+    </Container>
+  );
+}
+
+===== FILE: frontend/src/app/(auth)/register/page.js =====
+import RegisterForm from "@/components/auth/RegisterForm";
+
+export const metadata = { title: "Create account" };
+
+export default function Page() {
+  return <RegisterForm />;
+}
+
+
+===== FILE: frontend/src/app/(auth)/forgot-password/page.js =====
+import ForgotForm from "@/components/auth/ForgotForm";
+
+export const metadata = { title: "Forgot password" };
+
+export default function Page() {
+  return <ForgotForm />;
+}
+
+
+===== FILE: frontend/src/app/(auth)/reset-password/page.js =====
+import { Suspense } from "react";
+import ResetForm from "@/components/auth/ResetForm";
+
+export const metadata = { title: "Reset password" };
+
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <ResetForm />
+    </Suspense>
+  );
+}
+
+
+===== FILE: frontend/src/app/(auth)/verify-email/page.js =====
+import { Suspense } from "react";
+import VerifyEmail from "@/components/auth/VerifyEmail";
+
+export const metadata = { title: "Verify email" };
+
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <VerifyEmail />
+    </Suspense>
+  );
+}
+
+
+===== FILE: frontend/src/components/auth/AuthShell.jsx =====
+import Container from "@/components/ui/Container";
+
+export default function AuthShell({ title, subtitle, children, footer }) {
+  return (
+    <Container as="main" className="py-12">
+      <div className="mx-auto w-full max-w-md rounded-3xl border border-border bg-white p-8 shadow-sm">
+        <h1 className="text-3xl text-primary">{title}</h1>
+        {subtitle && <p className="mt-2 text-sm text-muted">{subtitle}</p>}
+        <div className="mt-6">{children}</div>
+      </div>
+      {footer && <p className="mt-6 text-center text-sm text-muted">{footer}</p>}
+    </Container>
+  );
+}
+
+===== FILE: frontend/src/components/auth/SignInForm.jsx =====
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { authService } from "@/services/auth.service";
+import { useAuthStore } from "@/store/useAuthStore";
+import { loadAccess, homeFor } from "@/lib/access";
+
+export default function SignInForm() {
+  const router = useRouter();
+  const raw = useSearchParams().get("next");
+  const safe = raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : null;
+  const status = useAuthStore((s) => s.status);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    let live = true;
+    loadAccess().then((a) => live && router.replace(safe || homeFor(a)));
+    return () => { live = false; };
+  }, [status, safe, router]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setError("");
+    try { await authService.login(email.trim(), password); } // the effect above redirects
+    catch (err) { setError(err.response?.data?.error?.message || "Could not sign in. Please try again."); }
+    finally { setBusy(false); }
+  };
+
+  const input = "mt-1 w-full rounded-xl border border-border bg-white px-4 py-3 outline-none focus:border-accent";
+  return (
+    <form onSubmit={submit} className="mx-auto mt-10 w-full max-w-md space-y-4 rounded-3xl border border-border bg-white p-8 shadow-sm">
+      <h1 className="text-3xl text-primary">Sign in</h1>
+      <label className="block text-sm font-medium">Email
+        <input type="email" required autoComplete="email" className={input} value={email} onChange={(e) => setEmail(e.target.value)} />
+      </label>
+      <label className="block text-sm font-medium">Password
+        <input type="password" required autoComplete="current-password" className={input} value={password} onChange={(e) => setPassword(e.target.value)} />
+      </label>
+      {error && <p role="alert" className="text-sm text-terracotta">{error}</p>}
+      <button disabled={busy} className="btn-gold w-full rounded-full px-6 py-3 font-semibold disabled:opacity-60">
+        {busy ? "Signing in…" : "Sign in"}
+      </button>
+      <div className="flex justify-between text-sm">
+        <Link href="/forgot-password" className="text-primary link-underline">Forgot password?</Link>
+        <Link href="/register" className="text-primary link-underline">Create account</Link>
+      </div>
+    </form>
+  );
+}
+
+===== FILE: frontend/src/components/auth/RegisterForm.jsx =====
+"use client";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import Field from "@/components/ui/Field";
+import AuthShell from "./AuthShell";
+import { authService } from "@/services/auth.service";
+import { useAuthStore } from "@/store/useAuthStore";
+import { errMsg } from "@/lib/errors";
+
+export default function RegisterForm() {
+  const router = useRouter();
+  const status = useAuthStore((s) => s.status);
+  const [f, setF] = useState({ fullName: "", email: "", password: "", phone: "", nationality: "" });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  useEffect(() => { if (status === "authenticated") router.replace("/dashboard"); }, [status, router]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setError("");
+    try {
+      await authService.register({ ...f, email: f.email.trim() });
+      router.replace("/dashboard");
+    } catch (err) { setError(errMsg(err)); } finally { setBusy(false); }
+  };
+
+  return (
+    <AuthShell title="Create account" subtitle="Book tours and manage your trips in one place."
+      footer={<>Already registered? <Link href="/sign-in" className="font-semibold text-primary link-underline">Sign in</Link></>}>
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Full name" required minLength={2} autoComplete="name" value={f.fullName} onChange={set("fullName")} />
+        <Field label="Email" type="email" required autoComplete="email" value={f.email} onChange={set("email")} />
+        <Field label="Password" type="password" required minLength={12} autoComplete="new-password" hint="At least 12 characters." value={f.password} onChange={set("password")} />
+        <Field label="Phone (optional)" type="tel" autoComplete="tel" value={f.phone} onChange={set("phone")} />
+        <Field label="Nationality (optional)" value={f.nationality} onChange={set("nationality")} />
+        {error && <p role="alert" className="text-sm text-terracotta">{error}</p>}
+        <button disabled={busy} className="btn-gold w-full rounded-full px-6 py-3 font-semibold disabled:opacity-60">{busy ? "Creating…" : "Create account"}</button>
+      </form>
+    </AuthShell>
+  );
+}
+
+===== FILE: frontend/src/components/auth/ForgotForm.jsx =====
+"use client";
+import { useState } from "react";
+import Link from "next/link";
+import Field from "@/components/ui/Field";
+import AuthShell from "./AuthShell";
+import api from "@/lib/axios";
+import { errMsg } from "@/lib/errors";
+
+export default function ForgotForm() {
+  const [email, setEmail] = useState("");
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setError("");
+    try { await api.post("/auth/request-password-reset", { email: email.trim() }); setDone(true); }
+    catch (err) { setError(errMsg(err)); } finally { setBusy(false); }
+  };
+
+  return (
+    <AuthShell title="Forgot password" subtitle="We'll email you a reset link, valid for 30 minutes."
+      footer={<Link href="/sign-in" className="font-semibold text-primary link-underline">Back to sign in</Link>}>
+      {done ? (
+        <p role="status" className="rounded-xl bg-accent/10 p-4 text-sm text-primary">
+          If an account exists for that email, a reset link is on its way. Check your inbox and spam folder.
+        </p>
+      ) : (
+        <form onSubmit={submit} className="space-y-4">
+          <Field label="Email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          {error && <p role="alert" className="text-sm text-terracotta">{error}</p>}
+          <button disabled={busy} className="btn-gold w-full rounded-full px-6 py-3 font-semibold disabled:opacity-60">{busy ? "Sending…" : "Send reset link"}</button>
+        </form>
+      )}
+    </AuthShell>
+  );
+}
+
+===== FILE: frontend/src/components/auth/ResetForm.jsx =====
+"use client";
+import { useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import Field from "@/components/ui/Field";
+import AuthShell from "./AuthShell";
+import api from "@/lib/axios";
+import { errMsg } from "@/lib/errors";
+
+export default function ResetForm() {
+  const token = useSearchParams().get("token") || "";
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (password !== confirm) return setError("Passwords do not match.");
+    setBusy(true); setError("");
+    try { await api.post("/auth/reset-password", { token, password }); setDone(true); }
+    catch (err) { setError(errMsg(err)); } finally { setBusy(false); }
+  };
+
+  if (!token) return <AuthShell title="Invalid link" footer={<Link href="/forgot-password" className="font-semibold text-primary">Request a new link</Link>}><p className="text-sm text-muted">This reset link is missing its token.</p></AuthShell>;
+
+  return (
+    <AuthShell title="Set a new password">
+      {done ? (
+        <div role="status" className="space-y-4 text-sm">
+          <p className="rounded-xl bg-accent/10 p-4 text-primary">Password updated. All other devices were signed out.</p>
+          <Link href="/sign-in" className="btn-gold inline-block rounded-full px-6 py-3 font-semibold">Sign in</Link>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="space-y-4">
+          <Field label="New password" type="password" required minLength={12} autoComplete="new-password" hint="At least 12 characters." value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Field label="Confirm password" type="password" required minLength={12} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          {error && <p role="alert" className="text-sm text-terracotta">{error}</p>}
+          <button disabled={busy} className="btn-gold w-full rounded-full px-6 py-3 font-semibold disabled:opacity-60">{busy ? "Saving…" : "Update password"}</button>
+        </form>
+      )}
+    </AuthShell>
+  );
+}
+
+===== FILE: frontend/src/components/auth/VerifyEmail.jsx =====
+"use client";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import AuthShell from "./AuthShell";
+import api from "@/lib/axios";
+import { errMsg } from "@/lib/errors";
+
+export default function VerifyEmail() {
+  const token = useSearchParams().get("token");
+  const [state, setState] = useState(token ? "loading" : "error");
+  const [msg, setMsg] = useState(token ? "" : "This link is missing its token.");
+  const started = useRef(false); // tokens are single-use; Strict Mode would run the effect twice
+
+  useEffect(() => {
+    if (!token || started.current) return;
+    started.current = true;
+    api.post("/auth/verify-email", { token })
+      .then(() => setState("ok"))
+      .catch((e) => { setState("error"); setMsg(errMsg(e)); });
+  }, [token]);
+
+  return (
+    <AuthShell title="Email verification">
+      {state === "loading" && <p role="status" className="text-sm text-muted">Verifying…</p>}
+      {state === "ok" && <p role="status" className="rounded-xl bg-accent/10 p-4 text-sm text-primary">Your email is verified. Thank you!</p>}
+      {state === "error" && <p role="alert" className="text-sm text-terracotta">{msg} You can request a new link from your <Link href="/dashboard" className="font-semibold underline">dashboard</Link>.</p>}
+    </AuthShell>
+  );
+}
+
+===== FILE: frontend/src/components/auth/RequireAuth.jsx =====
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/store/useAuthStore";
+
+export default function RequireAuth({ children }) {
+  const status = useAuthStore((s) => s.status);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (status === "guest") {
+      const here = window.location.pathname + window.location.search;
+      router.replace(`/sign-in?next=${encodeURIComponent(here)}`);
+    }
+  }, [status, router]);
+
+  if (status !== "authenticated") {
+    return <div role="status" className="grid min-h-[60vh] place-items-center text-muted">Loading…</div>;
+  }
+  return children;
+}
+
+===== FILE: frontend/src/components/providers/AuthProvider.jsx =====
+"use client";
+
+import { useEffect } from "react";
+import { useAuthStore } from "@/store/useAuthStore";
+import { useAccessStore } from "@/store/useAccessStore";
+import { loadAccess } from "@/lib/access";
+import { refreshSession } from "@/lib/axios";
+import { hasSessionHint, SESSION_KEY } from "@/lib/session";
+
+export default function AuthProvider({ children }) {
+  const authStatus = useAuthStore((s) => s.status);
+
+  useEffect(() => {
+    // Remove tokens left in localStorage by the old implementation
+    try { localStorage.removeItem("token"); localStorage.removeItem("user"); } catch {}
+
+    const { clearAuth } = useAuthStore.getState();
+    if (hasSessionHint()) {
+      refreshSession().catch(() => clearAuth()); // single-flight: safe under Strict Mode
+    } else {
+      clearAuth();
+    }
+
+    // Logged out in another tab -> log out here too
+    const onStorage = (e) => {
+      if (e.key === SESSION_KEY && e.newValue !== "1") useAuthStore.getState().clearAuth();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  useEffect(() => {
+    const acc = useAccessStore.getState();
+    if (authStatus === "authenticated" && acc.status === "idle") loadAccess();
+    if (authStatus === "guest") acc.reset();
+  }, [authStatus]);
+
+  return children;
+}
+
+===== FILE: frontend/src/components/layout/AuthMenu.jsx =====
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/store/useAuthStore";
+import { authService } from "@/services/auth.service";
+import useAccess from "@/hooks/useAccess";
+
+export default function AuthMenu({ tone = "text-primary", onNavigate }) {
+  const status = useAuthStore((s) => s.status);
+  const user = useAuthStore((s) => s.user);
+  const { isStaff } = useAccess();
+  const router = useRouter();
+
+  // "loading" is also what the server renders, so there is no hydration mismatch
+  if (status === "loading") return <span aria-hidden="true" className="h-5 w-20 animate-pulse rounded bg-current/10" />;
+
+  if (status === "guest") {
+    return <Link href="/sign-in" rel="nofollow" onClick={onNavigate} className={`text-sm font-medium ${tone}`}>Sign in</Link>;
+  }
+
+  const name = (user?.fullName || user?.email || "Account").split(" ")[0];
+  return (
+    <div className="flex items-center gap-4">
+      <Link href={isStaff ? "/admin" : "/dashboard"} onClick={onNavigate} className={`text-sm font-medium ${tone}`}>{name}</Link>
+      <button
+        type="button"
+        className={`text-sm font-medium opacity-80 hover:opacity-100 ${tone}`}
+        onClick={async () => { onNavigate?.(); await authService.logout(); router.push("/"); }}
+      >
+        Log out
+      </button>
+    </div>
+  );
+}
+
+===== FILE: frontend/src/services/auth.service.js =====
+import api, { refreshSession } from "../lib/axios";
+import { useAuthStore } from "../store/useAuthStore";
+import { setSessionHint, clearSessionHint } from "../lib/session";
+
+const unwrap = (res) => res.data?.data ?? res.data;
+
+function saveSession(session) {
+  if (!session?.accessToken) throw new Error("Authentication response did not include an access token.");
+  useAuthStore.getState().setAuth(session.user || null, session.accessToken);
+  setSessionHint();
+  return session;
+}
+
+export const authService = {
+  login: async (email, password) => saveSession(unwrap(await api.post("/auth/login", { email, password }))),
+  register: async (data) => saveSession(unwrap(await api.post("/auth/register", data))),
+  refreshSession,
+  logout: async () => {
+    try {
+      await api.post("/auth/logout");
+    } finally {
+      clearSessionHint();
+      useAuthStore.getState().clearAuth();
+    }
+  },
+};

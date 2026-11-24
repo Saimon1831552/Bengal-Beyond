@@ -16,7 +16,11 @@ const copy = {
 };
 
 export default function PaymentResult() {
-  const hint = useSearchParams().get("status"); // informational only
+  const searchParams = useSearchParams();
+  const hint = searchParams.get("status"); // informational only
+  const targetBookingId = searchParams.get("booking_id") || searchParams.get("bookingId");
+  const targetTranId = searchParams.get("tran_id");
+
   const [payment, setPayment] = useState(null);
   const [tries, setTries] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -26,17 +30,34 @@ export default function PaymentResult() {
     let timer;
     const check = async (n) => {
       try {
-        const res = await api.get("/customer/payments?limit=1");
-        const p = res.data?.data?.items?.[0] || null;
+        const res = await api.get("/customer/payments?limit=5");
+        const items = res.data?.data?.items || [];
+        const p =
+          items.find(
+            (item) =>
+              (targetBookingId && String(item.booking_id) === String(targetBookingId)) ||
+              (targetTranId && item.provider_payment_id === targetTranId)
+          ) ||
+          items[0] ||
+          null;
+
         if (!alive) return;
-        setPayment(p); setTries(n);
+        setPayment(p);
+        setTries(n);
         const unsettled = !p || ["initiated", "pending"].includes(p.status);
-        if (unsettled && hint === "success" && n < 8) timer = setTimeout(() => check(n + 1), 3000);
-      } catch { if (alive) setFailed(true); }
+        if (unsettled && hint === "success" && n < 8) {
+          timer = setTimeout(() => check(n + 1), 3000);
+        }
+      } catch {
+        if (alive) setFailed(true);
+      }
     };
     check(1);
-    return () => { alive = false; clearTimeout(timer); };
-  }, [hint]);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [hint, targetBookingId, targetTranId]);
 
   const key = payment?.status || (hint === "failed" ? "failed" : hint === "cancelled" ? "cancelled" : "pending");
   const [title, text] = copy[key] || copy.pending;
@@ -46,15 +67,27 @@ export default function PaymentResult() {
     <Container as="main" className="py-14">
       <div className="mx-auto max-w-lg rounded-3xl border border-border bg-white p-8 text-center shadow-sm">
         <h1 className="text-3xl text-primary">{title}</h1>
-        <p className="mt-3 text-muted">{failed ? "We could not load your payment status. Check your payments page." : stillWaiting ? "We haven't received the bank's confirmation yet. Check your payments page shortly." : text}</p>
+        <p className="mt-3 text-muted">
+          {failed
+            ? "We could not load your payment status. Check your payments page."
+            : stillWaiting
+              ? "We haven't received the bank's confirmation yet. Check your payments page shortly."
+              : text}
+        </p>
         {payment && (
           <div className="mt-6 flex items-center justify-center gap-3 text-sm">
-            <StatusBadge value={payment.status} /><span className="font-semibold text-primary">{money(payment.amount, payment.currency_code)}</span><span className="text-muted">{payment.booking_reference}</span>
+            <StatusBadge value={payment.status} />
+            <span className="font-semibold text-primary">{money(payment.amount, payment.currency_code)}</span>
+            <span className="text-muted">{payment.booking_reference}</span>
           </div>
         )}
         <div className="mt-8 flex justify-center gap-3">
-          <Link href="/bookings" className="btn-gold rounded-full px-6 py-3 text-sm font-semibold">My bookings</Link>
-          <Link href="/payments" className="rounded-full border border-primary px-6 py-3 text-sm font-semibold text-primary">Payments</Link>
+          <Link href="/bookings" className="btn-gold rounded-full px-6 py-3 text-sm font-semibold">
+            My bookings
+          </Link>
+          <Link href="/payments" className="rounded-full border border-primary px-6 py-3 text-sm font-semibold text-primary">
+            Payments
+          </Link>
         </div>
       </div>
     </Container>

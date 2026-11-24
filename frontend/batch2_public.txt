@@ -1,0 +1,355 @@
+﻿
+
+===== FILE: frontend/src/app/(public)/page.js =====
+import { buildMetadata } from "@/lib/seo";
+import { siteConfig } from "@/config/site";
+import { getDestinations, getTours, getPosts, getGallery, getHighlights } from "@/services/content";
+import { splitTours, trendingDestinations, blogCards } from "@/components/landing/data";
+
+import Hero from "@/components/landing/Hero";
+import About from "@/components/landing/About";
+import WhyChoose from "@/components/landing/WhyChoose";
+import HolidayTours from "@/components/landing/HolidayTours";
+import ShortTours from "@/components/landing/ShortTours";
+import DayTours from "@/components/landing/DayTours";
+import Stats from "@/components/landing/Stats";
+import Testimonials from "@/components/landing/Testimonials";
+import FeatureShowcase from "@/components/landing/FeatureShowcase";
+import Trending from "@/components/landing/Trending";
+import Blogs from "@/components/landing/Blogs";
+import Heritage from "@/components/landing/Heritage";
+import Gallery from "@/components/landing/Gallery";
+import DepthScene from "@/components/landing/DepthScene";
+import TestimonialsSection from "@/components/public/TestimonialsSection";
+
+
+export const metadata = buildMetadata({
+  title: { absolute: `${siteConfig.name} | Bangladesh Tours & Travel Experiences` },
+  description: siteConfig.description,
+  path: "/",
+});
+
+export const revalidate = 3600;
+
+const safe = async (fn) => { try { return await fn(); } catch { return []; } };
+
+export default async function HomePage() {
+  const [destinations, tours, posts, gallery, hl] = await Promise.all([
+    safe(getDestinations), safe(getTours), safe(getPosts), getGallery(9), getHighlights(),
+  ]);
+  const { holiday, short, day } = splitTours(tours);
+  const reviews = hl.reviews.map((r) => ({ id: r.id, name: r.name, place: r.tourTitle, stars: r.rating, text: r.text }));
+  const s = hl.stats;
+  const stats = s ? [
+    { to: s.travellers, label: "Happy travellers" },
+    { to: s.tours, label: "Tours to choose from" },
+    { to: s.reviews, label: "Traveller reviews" },
+  ].filter((x) => x.to > 0).map((x) => ({ ...x, suffix: "" })) : [];
+
+  return (
+    <main>
+      <Hero destinations={destinations} />
+      <About />
+      <DepthScene />
+      <WhyChoose />
+      <HolidayTours tours={holiday} />
+      <ShortTours tours={short} />
+      <DayTours tours={day} />
+      <Stats stats={stats} />
+      <Testimonials reviews={reviews} />
+      <FeatureShowcase />
+      <Trending destinations={trendingDestinations(destinations)} />
+      <Blogs posts={blogCards(posts)} />
+      <Heritage />
+      <Gallery items={gallery} />
+      <TestimonialsSection/>
+     
+    </main>
+  );
+}
+
+===== FILE: frontend/src/app/(public)/about/page.js =====
+import Container from "@/components/ui/Container";
+import Breadcrumbs from "@/components/seo/Breadcrumbs";
+import { buildMetadata } from "@/lib/seo";
+import { siteConfig } from "@/config/site";
+
+export const metadata = buildMetadata({ title: "About us", description: `About ${siteConfig.name}: locally led tours across Bangladesh.`, path: "/about" });
+
+export default function About() {
+  return (
+    <Container as="main" className="max-w-3xl py-10">
+      <Breadcrumbs items={[{ name: "Home", path: "/" }, { name: "About", path: "/about" }]} />
+      <h1 className="mt-4 text-4xl text-primary">About {siteConfig.name}</h1>
+      <div className="mt-6 space-y-4 text-muted">
+        <p>{siteConfig.description}</p>
+        <p>We design small-group journeys through mangrove forests, tea hills, ancient ruins and living cities, led by guides who call these places home.</p>
+        <p>{/* TODO: add your real story, team and licences here */}</p>
+      </div>
+    </Container>
+  );
+}
+
+===== FILE: frontend/src/app/(public)/contact/page.js =====
+import Container from "@/components/ui/Container";
+import Breadcrumbs from "@/components/seo/Breadcrumbs";
+import ContactForm from "@/components/forms/ContactForm";
+import { buildMetadata } from "@/lib/seo";
+
+export const metadata = buildMetadata({ title: "Contact us", description: "Questions about a tour or booking? Send us a message.", path: "/contact" });
+
+export default function Contact() {
+  return (
+    <Container as="main" className="max-w-2xl py-10">
+      <Breadcrumbs items={[{ name: "Home", path: "/" }, { name: "Contact", path: "/contact" }]} />
+      <h1 className="mt-4 text-4xl text-primary">Contact us</h1>
+      <p className="mt-3 text-muted">We usually reply within one working day.</p>
+      <ContactForm />
+    </Container>
+  );
+}
+
+===== FILE: frontend/src/app/(public)/faqs/page.js =====
+"use client";
+import { useState } from "react";
+import Container from "@/components/ui/Container";
+import { Loading, ErrorBox, Empty } from "@/components/account/State";
+import useFetch from "@/hooks/useFetch";
+
+export default function FaqsPage() {
+  const { data, error, loading, reload } = useFetch("/public/faqs");
+  const [openId, setOpenId] = useState(null);
+  const [activeCategory, setActiveCategory] = useState("All");
+
+  const categories = ["All", ...new Set((data || []).map((f) => f.category))];
+  const filtered = (data || []).filter((f) => activeCategory === "All" || f.category === activeCategory);
+
+  return (
+    <Container as="main" className="py-12">
+      <div className="max-w-2xl">
+        <p className="text-xs font-bold uppercase tracking-widest text-accent">Help Center</p>
+        <h1 className="mt-2 font-display text-4xl text-primary">Frequently asked questions</h1>
+        <p className="mt-2 text-sm text-muted">Everything you need to know about bookings, permits, payments, and private tours.</p>
+      </div>
+
+      {loading ? (
+        <div className="mt-8"><Loading /></div>
+      ) : error ? (
+        <div className="mt-8"><ErrorBox error={error} onRetry={reload} /></div>
+      ) : !data?.length ? (
+        <div className="mt-8"><Empty>FAQs are being updated. Check back soon!</Empty></div>
+      ) : (
+        <>
+          <div className="mt-6 flex flex-wrap gap-2">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setActiveCategory(cat)}
+                className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+                  activeCategory === cat
+                    ? "bg-primary text-white"
+                    : "border border-border bg-white text-primary hover:bg-primary/5"
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-6 divide-y divide-border rounded-2xl border border-border bg-white">
+            {filtered.map((faq) => {
+              const isOpen = openId === faq.id;
+              return (
+                <div key={faq.id} className="p-5">
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(isOpen ? null : faq.id)}
+                    className="flex w-full items-center justify-between gap-4 text-left"
+                  >
+                    <div>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-accent">{faq.category}</span>
+                      <h2 className="mt-0.5 text-base font-semibold text-primary">{faq.question}</h2>
+                    </div>
+                    <span className="text-lg font-bold text-primary">{isOpen ? "−" : "+"}</span>
+                  </button>
+                  {isOpen && (
+                    <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-muted">{faq.answer}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </Container>
+  );
+}
+
+===== FILE: frontend/src/app/(public)/booking/page.js =====
+import { Suspense } from "react";
+import BookingWizard from "@/components/booking/BookingWizard";
+
+export const metadata = { title: "Book a tour" };
+
+export default function Page() {
+  return <Suspense fallback={null}><BookingWizard /></Suspense>;
+}
+
+
+===== FILE: frontend/src/app/(public)/destinations/page.js =====
+import Link from "next/link";
+import { buildMetadata } from "@/lib/seo";
+import { getDestinations } from "@/services/content";
+import Breadcrumbs from "@/components/seo/Breadcrumbs";
+import Container from "@/components/ui/Container";
+import DestinationCard from "@/components/cards/DestinationCard";
+
+export const metadata = buildMetadata({
+  title: "Destinations in Bangladesh",
+  description: "Explore Cox's Bazar, the Sundarbans, Sylhet, Sajek Valley, Bandarban, Saint Martin's Island, Rangamati and Srimangal.",
+  path: "/destinations",
+});
+
+export default async function DestinationsPage() {
+  const destinations = await getDestinations();
+  return (
+  <Container as="main" className="py-10">
+    <Breadcrumbs items={[{ name: "Home", path: "/" }, { name: "Destinations", path: "/destinations" }]} />
+    <h1 className="mt-4 text-4xl">Destinations in Bangladesh</h1>
+    <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      {destinations.map((d) => <DestinationCard key={d.slug} destination={d} />)}
+    </div>
+  </Container>
+);
+}
+
+
+===== FILE: frontend/src/app/(public)/tours/page.js =====
+import Link from "next/link";
+import Container from "@/components/ui/Container";
+import Breadcrumbs from "@/components/seo/Breadcrumbs";
+import TourCard from "@/components/cards/TourCard";
+import TourFilters from "@/components/tours/TourFilters";
+import { buildMetadata } from "@/lib/seo";
+import { getDestinations, getCategories, searchTours } from "@/services/content";
+import { readFilters, toApiQuery, toHref, hasFilters, DURATION_OPTIONS } from "@/lib/tourFilters";
+
+const TITLE = "Bangladesh Tours & Experiences";
+const DESC = "Guided adventure, wildlife, cultural, beach, food and photography tours across Bangladesh, led by local experts.";
+
+export async function generateMetadata({ searchParams }) {
+  const f = readFilters(await searchParams);
+  const meta = buildMetadata({ title: TITLE, description: DESC, path: "/tours" }); // canonical is always /tours
+  // filtered or paged views are for people, not the index
+  return hasFilters(f) || f.page !== "1" ? { ...meta, robots: { index: false, follow: true } } : meta;
+}
+
+const EMPTY = { items: [], meta: { page: 1, limit: 12, total: 0, totalPages: 1 } };
+
+export default async function ToursPage({ searchParams }) {
+  const f = readFilters(await searchParams);
+  const [destinations, categories] = await Promise.all([getDestinations().catch(() => []), getCategories()]);
+  const dest = destinations.find((d) => d.slug === f.destination);
+
+  let result = EMPTY;
+  let failed = false;
+  if (!(f.destination && !dest)) { // an unknown destination slug can only match nothing
+    try { result = await searchTours(toApiQuery(f, dest?.id)); } catch { failed = true; }
+  }
+  const { items, meta } = result;
+
+  const chips = [
+    f.q && ["q", `“${f.q}”`],
+    dest && ["destination", dest.name],
+    f.category && ["category", categories.find((c) => String(c.id) === f.category)?.name || "Category"],
+    f.duration && ["duration", DURATION_OPTIONS.find(([v]) => v === f.duration)?.[1]],
+    f.minPrice && ["minPrice", `From ${f.minPrice}`],
+    f.maxPrice && ["maxPrice", `Up to ${f.maxPrice}`],
+    f.date && ["date", `Departs after ${f.date}`],
+    f.guests && ["guests", `${f.guests} traveller${f.guests === "1" ? "" : "s"}`],
+    f.available && ["available", "Open seats only"],
+  ].filter(Boolean);
+
+  return (
+    <Container as="main" className="py-10">
+      <Breadcrumbs items={[{ name: "Home", path: "/" }, { name: "Tours", path: "/tours" }]} />
+      <h1 className="mt-4 text-4xl text-primary">{TITLE}</h1>
+
+      <div className="mt-8 grid gap-8 lg:grid-cols-[300px_1fr]">
+        <TourFilters values={f} destinations={destinations} categories={categories} />
+
+        <section aria-live="polite">
+          <p className="text-sm text-muted">
+            {failed ? "" : `${meta.total} tour${meta.total === 1 ? "" : "s"} found`}
+          </p>
+
+          {chips.length > 0 && (
+            <ul className="mt-3 flex flex-wrap gap-2">
+              {chips.map(([key, text]) => (
+                <li key={key}>
+                  <Link href={toHref(f, { omit: [key] })} aria-label={`Remove filter: ${text}`}
+                    className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary hover:bg-primary/20">
+                    {text} <span aria-hidden="true">×</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {failed ? (
+            <p role="alert" className="mt-6 rounded-2xl border border-terracotta/30 bg-terracotta/10 p-6 text-sm text-terracotta">
+              We couldn&apos;t load tours right now. Please try again in a moment.
+            </p>
+          ) : !items.length ? (
+            <div className="mt-6 rounded-2xl border border-dashed border-border bg-white p-10 text-center">
+              <p className="text-lg text-primary">No tours match those filters.</p>
+              <p className="mt-2 text-sm text-muted">Try a different date, a wider price range, or fewer filters.</p>
+              <Link href="/tours" className="btn-gold mt-5 inline-block rounded-full px-6 py-2.5 text-sm font-semibold">Clear filters</Link>
+            </div>
+          ) : (
+            <div className="mt-6 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+              {items.map((t) => <TourCard key={t.slug} tour={t} />)}
+            </div>
+          )}
+
+          {meta.totalPages > 1 && (
+            <nav aria-label="Pagination" className="mt-10 flex items-center justify-center gap-4 text-sm">
+              {meta.page > 1
+                ? <Link href={toHref(f, { page: meta.page - 1 })} className="rounded-full border border-primary px-4 py-2 text-primary">Previous</Link>
+                : <span className="rounded-full border border-border px-4 py-2 text-muted">Previous</span>}
+              <span>Page {meta.page} of {meta.totalPages}</span>
+              {meta.page < meta.totalPages
+                ? <Link href={toHref(f, { page: meta.page + 1 })} className="rounded-full border border-primary px-4 py-2 text-primary">Next</Link>
+                : <span className="rounded-full border border-border px-4 py-2 text-muted">Next</span>}
+            </nav>
+          )}
+        </section>
+      </div>
+    </Container>
+  );
+}
+
+===== FILE: frontend/src/app/(public)/blog/page.js =====
+import Link from "next/link";
+import { buildMetadata } from "@/lib/seo";
+import { getPosts } from "@/services/content";
+import Breadcrumbs from "@/components/seo/Breadcrumbs";
+
+export const metadata = buildMetadata({
+  title: "Bangladesh Travel Blog & Guides",
+  description: "Travel guides, local food stories, cultural experiences and practical tips for visiting Bangladesh.",
+  path: "/blog",
+});
+
+export default async function BlogPage() {
+  const posts = await getPosts();
+  return (
+    <main>
+      <Breadcrumbs items={[{ name: "Home", path: "/" }, { name: "Blog", path: "/blog" }]} />
+      <h1>Bangladesh Travel Blog</h1>
+      <ul>{posts.map((p) => <li key={p.slug}><h2><Link href={`/blog/${p.slug}`}>{p.title}</Link></h2><p>{p.excerpt}</p></li>)}</ul>
+    </main>
+  );
+}
+

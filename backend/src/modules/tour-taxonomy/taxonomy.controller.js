@@ -9,8 +9,8 @@ function handlers(kind) {
     })),
     get: async (req, res) => sendSuccess(res, await service.get(kind, positiveId(req.params.id))),
     create: async (req, res) => {
-      validateTaxonomy(req.body, { slugRequired: true });
-      return sendSuccess(res, await service.create(kind, req.body), 201);
+       validateTaxonomy(req.body, { slugRequired: true });
+       return sendSuccess(res, await service.create(kind, req.body), { status: 201 });
     },
     update: async (req, res) => {
       validateTaxonomy(req.body);

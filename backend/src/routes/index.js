@@ -10,17 +10,17 @@ const express = require("express");
 
 const router = express.Router();
 
-router.use("/health", require("./Health.routes"));
+ router.use("/health", require("./Health.routes"));
 
 // Phase 1 onwards, e.g.:
  router.use("/auth", require("../modules/auth/auth.routes"));
-router.use("/tours", require("../modules/tour-search/tour-search.routes")); // must come first
-router.use("/tours", require("../modules/tours/tour.routes"));
+ router.use("/tours", require("../modules/tour-search/tour-search.routes")); // must come first
+ router.use("/tours", require("../modules/tours/tour.routes"));
  router.use("/admin/tours", require("../modules/tours/admin-tour.routes"));
  router.use("/admin", require("../modules/tour-products/tour-products.admin.routes"));
-router.use("/admin", require("../modules/operations/operations.admin.routes"));
-router.use("/admin", require("../modules/finance/finance.admin.routes"));
-router.use("/admin", require("../modules/growth/growth.admin.routes"));
+ router.use("/admin", require("../modules/operations/operations.admin.routes"));
+ router.use("/admin", require("../modules/finance/finance.admin.routes"));
+ router.use("/admin", require("../modules/growth/growth.admin.routes"));
  router.use("/admin/departures", require("../modules/departures/admin-departure.routes"));
  router.use("/admin/bookings", require("../modules/bookings/admin-booking.routes"));
  router.use("/admin/payments", require("../modules/payments/admin-payment.routes"));
@@ -101,7 +101,7 @@ router.use("/admin", require("../modules/growth/growth.admin.routes"));
 
   router.use("/blog", createBlogRouter({ authenticate, authorize }));
 
-  router.use("/me", require("../modules/rbac/me.routes"));
+  router.use("/me", authenticate, require("../modules/rbac/me.routes"));
   
   router.use("/admin/cancellation-requests", authenticate, authorize("bookings.manage"),
   require("../modules/cancellations/cancellation.routes"));

@@ -38,12 +38,15 @@ function payloadHash(payload) {
 
 async function memberDiscountPercent(conn) {
   const [rows] = await conn.query(
-    "SELECT setting_value FROM admin_settings WHERE setting_key = 'member_discount_percent' LIMIT 1");
+    "SELECT setting_value FROM admin_settings WHERE setting_key = 'member_discount_percent' LIMIT 1"
+  );
   if (!rows.length) return 5;
   try {
     const v = JSON.parse(rows[0].setting_value);
     return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 5;
-  } catch { return 5; }
+  } catch {
+    return 5;
+  }
 }
 
 const BOOKING_FIELDS = `id, booking_reference, booking_status, payment_status,
@@ -113,21 +116,68 @@ async function createBooking(payload) {
       throw appError(409, "Departure has already started");
     }
 
-    await connection.query(
-      `UPDATE seat_holds SET hold_status = 'expired'
-        WHERE departure_id = ? AND hold_status = 'active'
-          AND expires_at <= UTC_TIMESTAMP()`,
+    // Synchronized expiry of stale seat holds and their corresponding unpaid bookings
+    const [staleHolds] = await connection.query(
+      `SELECT h.id, h.booking_id, b.booking_status
+         FROM seat_holds h
+         JOIN bookings b ON b.id = h.booking_id
+        WHERE h.departure_id = ?
+          AND h.hold_status = 'active'
+          AND h.expires_at <= UTC_TIMESTAMP()
+          AND b.payment_status <> 'paid'
+          AND (b.payment_status <> 'pending' OR b.updated_at < UTC_TIMESTAMP() - INTERVAL 45 MINUTE)
+        FOR UPDATE`,
       [payload.departureId]
     );
+
+    if (staleHolds.length) {
+      const staleHoldIds = staleHolds.map((h) => h.id);
+      await connection.query(
+        `UPDATE seat_holds SET hold_status = 'expired'
+          WHERE hold_status = 'active' AND id IN (${staleHoldIds.map(() => "?").join(",")})`,
+        staleHoldIds
+      );
+
+      const expirableBookings = staleHolds.filter(
+        (h, idx, arr) =>
+          h.booking_id &&
+          ["pending_review", "awaiting_payment"].includes(h.booking_status) &&
+          arr.findIndex((item) => item.booking_id === h.booking_id) === idx
+      );
+
+      if (expirableBookings.length) {
+        const staleBookingIds = expirableBookings.map((b) => b.booking_id);
+        const [expireResult] = await connection.query(
+          `UPDATE bookings SET booking_status = 'expired', updated_at = UTC_TIMESTAMP()
+            WHERE id IN (${staleBookingIds.map(() => "?").join(",")})
+              AND booking_status IN ('pending_review', 'awaiting_payment')
+              AND expires_at <= UTC_TIMESTAMP()`,
+          staleBookingIds
+        );
+
+        if (expireResult.affectedRows > 0) {
+          for (const b of expirableBookings) {
+            await connection.query(
+              `INSERT INTO booking_status_history
+                (booking_id, previous_status, new_status, changed_by_user_id, note)
+               VALUES (?, ?, 'expired', NULL, 'Seat hold expired')`,
+              [b.booking_id, b.booking_status]
+            );
+          }
+        }
+      }
+    }
+
     const [holds] = await connection.query(
       `SELECT COALESCE(SUM(quantity), 0) AS held FROM seat_holds
         WHERE departure_id = ? AND hold_status = 'active'
           AND expires_at > UTC_TIMESTAMP()`,
       [payload.departureId]
     );
-    const available = Number(departure.seat_capacity)
-      - Number(departure.seats_reserved)
-      - Number(holds[0].held || 0);
+    const available =
+      Number(departure.seat_capacity) -
+      Number(departure.seats_reserved) -
+      Number(holds[0].held || 0);
     if (available < payload.quantity) throw appError(409, "Not enough seats available");
 
     const unitPrice = Number(
@@ -207,7 +257,15 @@ async function createBooking(payload) {
       `INSERT INTO booking_items
         (booking_id, tour_id, departure_id, quantity, unit_price, line_total, tour_snapshot)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [bookingId, departure.tour_id, payload.departureId, payload.quantity, unitPrice, tourSubtotalCents / 100, tourSnapshot]
+      [
+        bookingId,
+        departure.tour_id,
+        payload.departureId,
+        payload.quantity,
+        unitPrice,
+        tourSubtotalCents / 100,
+        tourSnapshot
+      ]
     );
     for (const addon of selectedAddons) {
       await connection.query(
@@ -288,7 +346,7 @@ async function expireHoldsBatch(batchSize = 500) {
   try {
     await connection.beginTransaction();
     const [rows] = await connection.query(
-      `SELECT h.id, h.booking_id
+      `SELECT h.id, h.booking_id, b.booking_status
          FROM seat_holds h JOIN bookings b ON b.id = h.booking_id
         WHERE h.hold_status = 'active' AND h.expires_at <= UTC_TIMESTAMP()
           AND b.payment_status <> 'paid'
@@ -302,15 +360,22 @@ async function expireHoldsBatch(batchSize = 500) {
     }
 
     const ids = rows.map((row) => row.id);
-    const bookingIds = [...new Set(rows.map((row) => row.booking_id).filter(Boolean))];
     await connection.query(
       `UPDATE seat_holds SET hold_status = 'expired'
         WHERE hold_status = 'active' AND id IN (${ids.map(() => "?").join(",")})`,
       ids
     );
 
+    const expirableBookings = rows.filter(
+      (r, idx, arr) =>
+        r.booking_id &&
+        ["pending_review", "awaiting_payment"].includes(r.booking_status) &&
+        arr.findIndex((item) => item.booking_id === r.booking_id) === idx
+    );
+
     let bookingsExpired = 0;
-    if (bookingIds.length) {
+    if (expirableBookings.length) {
+      const bookingIds = expirableBookings.map((b) => b.booking_id);
       const [result] = await connection.query(
         `UPDATE bookings SET booking_status = 'expired', updated_at = UTC_TIMESTAMP()
           WHERE id IN (${bookingIds.map(() => "?").join(",")})
@@ -319,6 +384,17 @@ async function expireHoldsBatch(batchSize = 500) {
         bookingIds
       );
       bookingsExpired = result.affectedRows || 0;
+
+      if (bookingsExpired > 0) {
+        for (const b of expirableBookings) {
+          await connection.query(
+            `INSERT INTO booking_status_history
+              (booking_id, previous_status, new_status, changed_by_user_id, note)
+             VALUES (?, ?, 'expired', NULL, 'Seat hold expired')`,
+            [b.booking_id, b.booking_status]
+          );
+        }
+      }
     }
 
     await connection.commit();

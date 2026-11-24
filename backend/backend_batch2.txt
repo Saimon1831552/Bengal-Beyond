@@ -1,0 +1,714 @@
+﻿
+
+===== FILE: backend/src/middleware/apiRateLimit.js =====
+const rateLimit = require("express-rate-limit");
+
+const standard = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { success: false, message: "Too many requests. Please try again later." }
+});
+
+const auth = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { success: false, message: "Too many authentication attempts. Try again later." }
+});
+
+const publicEnquiry = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { success: false, message: "Too many enquiries. Please try again later." }
+});
+
+const bookingCreate = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { success: false, message: "Too many booking attempts. Please try again later." }
+});
+
+const newsletterSignup = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { success: false, message: "Too many subscription attempts. Please try again later." }
+});
+
+module.exports = { standard, auth, publicEnquiry, bookingCreate, newsletterSignup };
+
+
+===== FILE: backend/src/middleware/apiVersion.js =====
+/**
+ * Optional API version header middleware.
+ * Current routes remain backward-compatible at /api/*; clients may send
+ * X-API-Version: 1. Unsupported versions are rejected explicitly.
+ */
+module.exports = function apiVersion(req, res, next) {
+  const requested = req.get('X-API-Version');
+  if (!requested) return next();
+  if (requested !== '1') {
+    return res.status(400).json({
+      success: false,
+      message: `Unsupported API version '${requested}'. Supported version: 1.`,
+      requestId: req.requestId
+    });
+  }
+  res.set('X-API-Version', '1');
+  res.set('Vary', 'X-API-Version');
+  return next();
+};
+
+
+===== FILE: backend/src/middleware/authenticate.js =====
+const jwt = require("jsonwebtoken");
+const { pool } = require("../config/db");
+const env = require("../config/env");
+const AppError = require("../utils/appError");
+const asyncHandler = require("../utils/asynchandler");
+const { recordSecurityEvent } = require("../modules/audit/audit-logger");
+
+const ISSUER = "bengal-beyond-api";
+const AUDIENCE = "bengal-beyond-client";
+
+/**
+ * Requires a valid Phase 2.1 access token and an active database account.
+ * Sets req.auth = { userId, email, roles } and req.user to a safe user object.
+ */
+module.exports = asyncHandler(async function authenticate(req, res, next) {
+  const header = req.get("authorization") || "";
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  if (!match) {
+    await recordSecurityEvent({
+      action: "auth.access.denied",
+      req,
+      details: { outcome: "denied", reason: "missing_access_token", method: req.method, path: req.path },
+    });
+    throw AppError.unauthorized("A valid access token is required.", "ACCESS_TOKEN_REQUIRED");
+  }
+
+  let payload;
+  try {
+    payload = jwt.verify(match[1], env.JWT_ACCESS_SECRET, {
+      algorithms: ["HS256"],
+      issuer: ISSUER,
+      audience: AUDIENCE,
+    });
+  } catch {
+    await recordSecurityEvent({
+      action: "auth.access.denied",
+      req,
+      details: { outcome: "denied", reason: "invalid_access_token", method: req.method, path: req.path },
+    });
+    throw AppError.unauthorized("Access token is invalid or expired.", "INVALID_ACCESS_TOKEN");
+  }
+
+  if (
+    !payload || payload.typ !== "access" ||
+    typeof payload.sub !== "string" || !/^[1-9]\d*$/.test(payload.sub)
+  ) {
+    throw AppError.unauthorized("Access token is invalid or expired.", "INVALID_ACCESS_TOKEN");
+  }
+
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.email, u.full_name, u.account_status,
+            r.role_key
+       FROM users u
+       LEFT JOIN user_roles ur ON ur.user_id = u.id
+       LEFT JOIN roles r ON r.id = ur.role_id
+      WHERE u.id = ?`,
+    [payload.sub],
+  );
+
+  if (!rows.length || rows.some((row) => row.account_status !== "active")) {
+    throw AppError.unauthorized("Session is no longer valid.", "INVALID_SESSION");
+  }
+
+  const first = rows[0];
+  const roles = [...new Set(rows.map((row) => row.role_key).filter(Boolean))];
+  req.auth = { userId: first.id, email: first.email, roles };
+  req.user = {
+    id: first.id,
+    email: first.email,
+    fullName: first.full_name,
+    accountStatus: first.account_status,
+    roles,
+  };
+  return next();
+});
+
+
+===== FILE: backend/src/middleware/authorize.js =====
+const { pool } = require("../config/db");
+const AppError = require("../utils/appError");
+const asyncHandler = require("../utils/asynchandler");
+const { recordSecurityEvent } = require("../modules/audit/audit-logger");
+
+/**
+ * Usage: router.get("/admin", authenticate, authorize("dashboard.read"), handler)
+ * Permissions are resolved from the database on every request so permission
+ * changes and role removals take effect without waiting for a token to expire.
+ */
+function authorize(...requiredPermissions) {
+  if (
+    requiredPermissions.length === 0 ||
+    requiredPermissions.some((permission) => typeof permission !== "string" || !permission.trim())
+  ) {
+    throw new TypeError("authorize() requires at least one non-empty permission key.");
+  }
+
+  return asyncHandler(async function authorizeRequest(req, res, next) {
+    if (!req.auth || !req.auth.userId) {
+      throw AppError.unauthorized("Authentication is required.", "AUTHENTICATION_REQUIRED");
+    }
+
+    const placeholders = requiredPermissions.map(() => "?").join(", ");
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT p.permission_key
+         FROM user_roles ur
+         JOIN role_permissions rp ON rp.role_id = ur.role_id
+         JOIN permissions p ON p.id = rp.permission_id
+        WHERE ur.user_id = ?
+          AND p.permission_key IN (${placeholders})`,
+      [req.auth.userId, ...requiredPermissions],
+    );
+
+    const granted = new Set(rows.map((row) => row.permission_key));
+    const missing = requiredPermissions.filter((permission) => !granted.has(permission));
+    if (missing.length) {
+      await recordSecurityEvent({
+        action: "auth.permission.denied",
+        actorUserId: req.auth.userId,
+        req,
+        details: { outcome: "denied", permissions: missing, method: req.method, path: req.path },
+      });
+      throw AppError.forbidden("You do not have permission to perform this action.", "INSUFFICIENT_PERMISSION");
+    }
+
+    req.auth.permissions = [...new Set([...(req.auth.permissions || []), ...requiredPermissions])];
+    return next();
+  });
+}
+
+module.exports = authorize;
+
+
+===== FILE: backend/src/middleware/authRateLimit.js =====
+const { rateLimit } = require("express-rate-limit");
+
+function createAuthRateLimit() {
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: {
+      success: false,
+      error: { code: "RATE_LIMITED", message: "Too many authentication requests. Try again later." },
+    },
+  });
+}
+
+module.exports = {
+  register: createAuthRateLimit(),
+  login: createAuthRateLimit(),
+  refresh: createAuthRateLimit(),
+  requestVerification: createAuthRateLimit(),
+  verifyEmail: createAuthRateLimit(),
+  requestPasswordReset: createAuthRateLimit(),
+  resetPassword: createAuthRateLimit(),
+};
+
+
+===== FILE: backend/src/middleware/errorHandler.js =====
+const AppError = require("../utils/appError");
+const env = require("../config/env");
+const logger = require("../utils/logger");
+
+// Turns known library/database errors into AppErrors with a safe message.
+// Raw SQL text is never sent to the client.
+function mapKnownError(error) {
+  if (error instanceof AppError) return error;
+  if (Array.isArray(error?.issues) && /Zod/.test(error?.name || "")) {
+    return AppError.validation(
+      error.issues.map((i) => {
+        const path = (i.path || []).join(".");
+        return { path, message: path ? `${path}: ${i.message}` : i.message };
+      })
+    );
+  }
+
+  // body-parser
+  if (error.type === "entity.parse.failed") {
+    return AppError.badRequest("Request body is not valid JSON.", undefined, "INVALID_JSON");
+  }
+  if (error.type === "entity.too.large") {
+    return new AppError(413, "PAYLOAD_TOO_LARGE", "Request body is too large.");
+  }
+  if (Number.isInteger(error.statusCode) && error.statusCode >= 400 && error.statusCode <= 599) {
+    return new AppError(error.statusCode, error.code || "REQUEST_ERROR", error.message);
+  }
+
+  // CHECK constraint failures. Match by error NUMBER, not name: the mysql2 driver
+  // only knows MySQL's error table, so MariaDB's 4025 arrives with a wrong name.
+  if (error.errno === 3819 /* MySQL 8 */ || error.errno === 4025 /* MariaDB */) {
+    return new AppError(422, "CONSTRAINT_VIOLATION", "The values do not satisfy a data rule.");
+  }
+
+  // MySQL / MariaDB (mysql2)
+  switch (error.code) {
+    case "ER_DUP_ENTRY":
+      return AppError.conflict("A record with these values already exists.", undefined, "DUPLICATE_ENTRY");
+    case "ER_NO_REFERENCED_ROW_2":
+      return AppError.badRequest("A referenced record does not exist.", undefined, "INVALID_REFERENCE");
+    case "ER_ROW_IS_REFERENCED_2":
+      return AppError.conflict("This record is still in use and cannot be removed.", undefined, "RECORD_IN_USE");
+    case "ER_LOCK_DEADLOCK":
+    case "ER_LOCK_WAIT_TIMEOUT":
+      return new AppError(503, "TRY_AGAIN", "The system is busy. Please try again.");
+    default:
+      return null;
+  }
+}
+
+function buildErrorBody(error, { requestId, isProduction }) {
+  const mapped = mapKnownError(error);
+
+  if (mapped) {
+    const body = { code: mapped.code, message: mapped.message, requestId };
+    if (mapped.details !== undefined) body.details = mapped.details;
+    return { status: mapped.statusCode, body: { success: false, error: body } };
+  }
+
+  // Unknown error = a bug. Never leak its message in production.
+  return {
+    status: 500,
+    body: {
+      success: false,
+      error: {
+        code: "INTERNAL_ERROR",
+        message: isProduction ? "Something went wrong." : error.message,
+        requestId,
+      },
+    },
+  };
+}
+
+// Express recognises an error handler by its 4 arguments. Do not remove `next`.
+// eslint-disable-next-line no-unused-vars
+function errorHandler(error, req, res, next) {
+  if (res.headersSent) return next(error);
+
+  const { status, body } = buildErrorBody(error, {
+    requestId: req.id,
+    isProduction: env.IS_PRODUCTION,
+  });
+
+  if (status >= 500) {
+    logger.error("Unhandled request error", {
+      requestId: req.id,
+      method: req.method,
+      path: req.originalUrl,
+      errorCode: error.code,
+      stack: error.stack,
+    });
+  }
+
+  return res.status(status).json(body);
+}
+
+module.exports = { errorHandler, mapKnownError, buildErrorBody };
+
+===== FILE: backend/src/middleware/notFound.js =====
+const AppError = require("../utils/appError");
+
+module.exports = function notFound(req, res, next) {
+  next(AppError.notFound(`Route not found: ${req.method} ${req.originalUrl}`, "ROUTE_NOT_FOUND"));
+};
+
+===== FILE: backend/src/middleware/optionalAuthenticate.js =====
+const authenticate = require("./authenticate");
+
+// No token = guest. A token that is present must be valid (so expired tokens still get refreshed).
+module.exports = function optionalAuthenticate(req, res, next) {
+  if (!req.get("authorization")) return next();
+  return authenticate(req, res, next);
+};
+
+===== FILE: backend/src/middleware/requestId.js =====
+const crypto = require("crypto");
+
+const SAFE_ID = /^[A-Za-z0-9._-]{8,100}$/;
+
+// Gives every request an id, returned in the X-Request-Id header and in
+// every error body, so "it failed" can be matched to one log line.
+module.exports = function requestId(req, res, next) {
+  const incoming = req.get("x-request-id");
+  req.id = incoming && SAFE_ID.test(incoming) ? incoming : crypto.randomUUID();
+  res.set("X-Request-Id", req.id);
+  next();
+};
+
+===== FILE: backend/src/middleware/requestValidation.js =====
+// Small reusable request-size guard. Keep route-specific schema validation in each module.
+module.exports = function requestValidation({ maxJsonBytes = "1mb" } = {}) {
+  return function validateRequestSize(req, res, next) {
+    const length = Number(req.headers["content-length"] || 0);
+    const max = typeof maxJsonBytes === "number"
+      ? maxJsonBytes
+      : Number.parseInt(maxJsonBytes, 10) * (maxJsonBytes.toLowerCase().includes("mb") ? 1024 * 1024 : 1024);
+    if (Number.isFinite(length) && length > max) {
+      return res.status(413).json({ success: false, message: "Request body is too large" });
+    }
+    next();
+  };
+};
+
+
+===== FILE: backend/src/middleware/securityHeaders.js =====
+const helmet = require("helmet");
+
+// Apply before API routes. Configure CSP origins for any docs/uploads domain used by your app.
+module.exports = function securityHeaders() {
+  return helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" }
+  });
+};
+
+
+===== FILE: backend/src/middleware/validate.js =====
+const { ZodError } = require("zod");
+const AppError = require("../utils/appError");
+
+/**
+ * Validates req.body, req.query, and/or req.params against Zod schemas.
+ * Parsed & coerced values replace the original request objects AND populate
+ * req.validated so both patterns work seamlessly.
+ */
+function validate({ body, query, params } = {}) {
+  return (req, _res, next) => {
+    try {
+      req.validated = req.validated || {};
+      if (params) {
+        req.params = params.parse(req.params);
+        req.validated.params = req.params;
+      }
+      if (query) {
+        req.query = query.parse(req.query);
+        req.validated.query = req.query;
+      }
+      if (body) {
+        req.body = body.parse(req.body);
+        req.validated.body = req.body;
+      }
+      return next();
+    } catch (err) {
+      if (err instanceof ZodError) {
+        const issues = err.issues.map((i) => ({
+          field: i.path.join(".") || "root",
+          message: i.message,
+        }));
+        const firstMsg = issues[0] ? `${issues[0].field}: ${issues[0].message}` : "Invalid request input.";
+        const appErr = AppError.badRequest(firstMsg, "VALIDATION_ERROR");
+        appErr.details = issues;
+        return next(appErr);
+      }
+      return next(err);
+    }
+  };
+}
+
+module.exports = validate;
+
+===== FILE: backend/src/routes/Health.routes.js =====
+const express = require("express");
+const { pool, testConnection } = require("../config/db");
+const asyncHandler = require("../utils/asynchandler");
+const { sendSuccess } = require("../utils/response");
+
+const router = express.Router();
+
+// Liveness: is the process up? (no database call)
+router.get("/", (req, res) =>
+  sendSuccess(res, { status: "ok", uptimeSeconds: Math.round(process.uptime()) })
+);
+
+// Readiness: can it reach the database?
+router.get(
+  "/ready",
+  asyncHandler(async (req, res) => {
+    const database = await testConnection();
+    return sendSuccess(res, { status: "ready", database });
+  })
+);
+
+// Operations queue summary: background emails & payment webhooks
+router.get(
+  "/queues",
+  asyncHandler(async (req, res) => {
+    const [[notifications]] = await pool.execute(
+      `SELECT
+         SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued,
+         SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) AS processing,
+         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+       FROM notification_jobs`
+    );
+
+    const [[webhooks]] = await pool.execute(
+      `SELECT
+         SUM(CASE WHEN processing_status = 'received' THEN 1 ELSE 0 END) AS received,
+         SUM(CASE WHEN processing_status = 'failed' THEN 1 ELSE 0 END) AS failed
+       FROM payment_webhook_events`
+    );
+
+    return sendSuccess(res, {
+      notifications: {
+        queued: Number(notifications.queued || 0),
+        processing: Number(notifications.processing || 0),
+        failed: Number(notifications.failed || 0),
+      },
+      webhooks: {
+        received: Number(webhooks.received || 0),
+        failed: Number(webhooks.failed || 0),
+      },
+    });
+  })
+);
+
+module.exports = router;
+
+===== FILE: backend/src/routes/index.js =====
+const customerBookingRoutes = require("../modules/customer-bookings/customer-booking.routes");
+const authenticate = require("../middleware/authenticate");
+const authorize = require("../middleware/authorize");
+const { createGalleryRouter } = require('../modules/gallery/gallery.routes');
+const { createBlogRouter } = require("../modules/blog/blog.routes");
+const { publicEnquiry } = require("../middleware/apiRateLimit");
+
+
+const express = require("express");
+
+const router = express.Router();
+
+router.use("/health", require("./Health.routes"));
+
+// Phase 1 onwards, e.g.:
+ router.use("/auth", require("../modules/auth/auth.routes"));
+router.use("/tours", require("../modules/tour-search/tour-search.routes")); // must come first
+router.use("/tours", require("../modules/tours/tour.routes"));
+ router.use("/admin/tours", require("../modules/tours/admin-tour.routes"));
+ router.use("/admin", require("../modules/tour-products/tour-products.admin.routes"));
+router.use("/admin", require("../modules/operations/operations.admin.routes"));
+router.use("/admin", require("../modules/finance/finance.admin.routes"));
+router.use("/admin", require("../modules/growth/growth.admin.routes"));
+ router.use("/admin/departures", require("../modules/departures/admin-departure.routes"));
+ router.use("/admin/bookings", require("../modules/bookings/admin-booking.routes"));
+ router.use("/admin/payments", require("../modules/payments/admin-payment.routes"));
+ router.use("/admin/customers", require("../modules/customers/admin-customer.routes"));
+ router.use("/admin/dashboard", require("../modules/dashboard/dashboard.routes"));
+ router.use("/admin", require("../modules/admin-activity/admin-activity.routes"));
+ router.use("/admin/settings", require("../modules/settings/admin-settings.routes"));
+ router.use("/admin/audit-logs", require("../modules/audit/admin-audit.routes"));
+ router.use("/admin/roles", require("../modules/rbac/admin-rbac.routes")); 
+ router.use("/bookings", require("../modules/bookings/booking.routes")); 
+ router.use("/customer", authenticate, customerBookingRoutes);
+ router.use("/customer", authenticate, require("../modules/customer-payments/customer-payment.routes"));
+ router.use('/customer', authenticate, require('../modules/sslcommerz/customer-sslcommerz.routes'));
+ router.use('/payments/sslcommerz', require('../modules/sslcommerz/sslcommerz.routes')); // stays PUBLIC (gateway callbacks)
+ router.use('/admin/refunds', authenticate, authorize('refunds.manage'), require('../modules/refunds/admin-refund.routes'));
+ router.use('/customer/refunds', authenticate, require('../modules/refunds/customer-refund.routes'));
+ router.use('/admin/refunds', authenticate, authorize('refunds.manage'), require('../modules/refunds/sslcommerz-refund.routes'));
+ router.use('/webhooks', require('../modules/payment-webhooks/webhook.routes'));
+ router.use('/admin/payment-webhooks', authenticate, authorize('payments.manage'),
+    require('../modules/payment-webhooks/webhook-admin.routes'));
+ router.use('/docs', require('../modules/api-docs/api-docs.routes'));
+ router.use('/destinations', require('../modules/destinations/destination.public.routes'));
+ router.use('/admin/destinations', authenticate, authorize('content.manage'),
+   require('../modules/destinations/destination.admin.routes'));
+ 
+ router.use("/", require("../modules/tour-taxonomy/taxonomy.public.routes"));
+ router.use("/admin/taxonomy",
+    authenticate,
+    authorize("content.manage"),
+    require("../modules/tour-taxonomy/taxonomy.admin.routes"));
+
+ router.use("/", require("../modules/departure-availability/departure.public.routes"));
+ 
+
+ router.use("/", require("../modules/tour-reviews/review.public.routes"));
+ router.use("/", require("../modules/tour-reviews/review.customer.routes"));
+ router.use(
+    "/admin/reviews",
+    authenticate,
+    authorize("reviews.moderate"),
+    require("../modules/tour-reviews/review.admin.routes")
+  );
+  router.use(
+    "/me/wishlist",
+    authenticate,
+    require("../modules/wishlist/wishlist.routes")
+  );
+  router.use(
+    "/admin/coupons",
+    authenticate,
+    authorize("settings.manage"),
+    require("../modules/coupons/coupon.admin.routes")
+  );
+  router.use(
+    "/coupons",
+    authenticate,
+    require("../modules/coupons/coupon.customer.routes")
+  );
+  router.use(
+    "/bookings",
+    authenticate,
+    require("../modules/booking-pricing/pricing.routes")
+  );
+  router.use("/support/enquiries", publicEnquiry);
+  router.use("/support", require("../modules/support/support.public.routes"));
+  router.use("/me/support", authenticate,
+     require("../modules/support/support.customer.routes"));
+ 
+  router.use("/admin/support", authenticate,
+     authorize("enquiries.manage"),
+     require("../modules/support/support.admin.routes"));
+
+  router.use("/admin/notifications", authenticate,
+     authorize("settings.manage"),
+     require("../modules/notifications/notification.admin.routes"));
+
+  router.use('/gallery', createGalleryRouter({ authenticate, authorize }));
+
+  router.use("/blog", createBlogRouter({ authenticate, authorize }));
+
+  router.use("/me", require("../modules/rbac/me.routes"));
+  
+  router.use("/admin/cancellation-requests", authenticate, authorize("bookings.manage"),
+  require("../modules/cancellations/cancellation.routes"));
+
+  router.use("/public", require("../modules/public/public.content.routes"));
+  router.use("/site-info", require("../modules/settings/site-info.routes"));
+
+  router.use("/highlights", require("../modules/public/highlights.routes"));
+
+
+module.exports = router;
+
+===== FILE: backend/src/scripts/check-api-health.js =====
+const base = (process.env.API_BASE_URL || "http://127.0.0.1:5000").replace(/\/+$/, "");
+async function check(path, expectedStatus = 200) {
+  const response = await fetch(`${base}${path}`, { headers: { Accept: "application/json" } });
+  const body = await response.text();
+  if (response.status !== expectedStatus) {
+    throw new Error(`${path}: expected HTTP ${expectedStatus}, received ${response.status}. Body: ${body.slice(0, 300)}`);
+  }
+  console.log(`OK ${response.status} ${path}`);
+}
+(async () => {
+  try {
+    await check("/api/health");
+    await check("/api/health/ready");
+    console.log("API liveness/readiness checks passed.");
+  } catch (error) {
+    console.error("API health check failed:", error.message);
+    process.exitCode = 1;
+  }
+})();
+
+
+===== FILE: backend/src/scripts/check-phase5-schema.js =====
+const { pool, closePool } = require("../config/db");
+
+const required = {
+  destinations: ["id", "slug", "name"],
+  tour_categories: ["id"],
+  tour_category_assignments: ["tour_id", "category_id"],
+  tour_tags: ["id"],
+  tour_tag_assignments: ["tour_id", "tag_id"],
+  wishlist_items: ["id", "user_id", "tour_id"],
+  coupons: ["id", "code", "discount_type", "discount_value", "status"],
+  coupon_redemptions: ["id", "coupon_id", "booking_id", "user_id", "discount_amount", "status"],
+  support_tickets: ["id", "ticket_reference", "user_id", "status"],
+  support_messages: ["id", "ticket_id", "sender_type", "message_text", "is_internal"],
+  notification_templates: ["id", "template_key", "channel", "body_template"],
+  notification_jobs: ["id", "channel", "recipient", "status", "idempotency_key"],
+  notification_attempts: ["id", "job_id", "attempt_number", "outcome"],
+  payment_webhook_events: [
+    "id", "provider", "event_key", "validation_id", "payload_json",
+    "processing_status", "attempt_count", "next_retry_at"
+  ],
+  tours: ["destination_id"]
+};
+
+async function main() {
+  let failed = false;
+  try {
+    const [[db]] = await pool.execute("SELECT DATABASE() AS name, VERSION() AS version");
+    console.log(`Database: ${db.name} | MariaDB/MySQL: ${db.version}`);
+    for (const [table, columns] of Object.entries(required)) {
+      const [rows] = await pool.execute(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [table]);
+      const actual = new Set(rows.map((row) => row.COLUMN_NAME));
+      const missing = columns.filter((column) => !actual.has(column));
+      if (!rows.length) {
+        failed = true;
+        console.error(`MISSING TABLE  ${table}`);
+      } else if (missing.length) {
+        failed = true;
+        console.error(`MISSING COLUMNS ${table}: ${missing.join(", ")}`);
+      } else {
+        console.log(`OK             ${table}`);
+      }
+    }
+    if (failed) process.exitCode = 1;
+    else console.log("Phase 5 schema preflight passed.");
+  } catch (error) {
+    console.error("Schema preflight failed:", error.message);
+    process.exitCode = 1;
+  } finally {
+    await closePool();
+  }
+}
+main();
+
+
+===== FILE: backend/src/scripts/test-email.js =====
+const { verifyConnection, sendMail } = require("../services/mailer");
+const env = require("../config/env");
+
+async function main() {
+  const to = process.argv[2];
+  if (!to) {
+    console.error("Usage: npm run email:test -- you@example.com");
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    console.log(`Connecting to ${env.SMTP_HOST}:${env.SMTP_PORT} as ${env.SMTP_USER}...`);
+    await verifyConnection();
+    console.log("SMTP connection and credentials OK.");
+    const { messageId } = await sendMail({
+      to,
+      subject: "Bengal Beyond: test email",
+      text: "This is a test email from the Bengal Beyond backend.",
+    });
+    console.log(`Message sent: ${messageId}`);
+    console.log("Check delivery at https://mailtrap.io/sending/email_logs");
+  } catch (error) {
+    console.error("Email test failed:", error.message);
+    process.exitCode = 1;
+  }
+}
+main();
+
