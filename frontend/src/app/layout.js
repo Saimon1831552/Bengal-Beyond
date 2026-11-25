@@ -9,10 +9,9 @@ import Footer from "@/components/layout/Footer";
 import MaintenanceBanner from "@/components/layout/MaintenanceBanner";
 import AuthProvider from "@/components/providers/AuthProvider";
 import { ToastProvider } from "@/components/ui/ToastProvider";
-import CustomCursor from "@/components/fx/CustomCursor";
 import MicroFX from "@/components/fx/MicroFX";
+import FloatingConcierge from "@/components/landing/FloatingConcierge";
 import { getSiteInfo } from "@/services/content";
-
 
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces", display: "swap", style: ["normal", "italic"] });
 const manrope  = Manrope({ subsets: ["latin"], variable: "--font-manrope", display: "swap" });
@@ -56,7 +55,7 @@ export default async function RootLayout({ children }) {
 
   return (
     <html lang={siteConfig.language} className={`${fraunces.variable} ${manrope.variable}`}>
-      <body className="min-h-full flex flex-col">
+<body className="min-h-full flex flex-col">
         <SmoothScroll>
           <AuthProvider>
             <ToastProvider>
@@ -67,10 +66,10 @@ export default async function RootLayout({ children }) {
               <MaintenanceBanner info={info} />
             </ToastProvider>
           </AuthProvider>
-          <CustomCursor />
           <MicroFX />
           <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
         </SmoothScroll>
+        <FloatingConcierge phone={info?.phone || siteConfig.contact.phone} />
       </body>
     </html>
   );

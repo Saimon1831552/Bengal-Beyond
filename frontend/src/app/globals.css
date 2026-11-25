@@ -245,10 +245,6 @@ html { scrollbar-width: thin; scrollbar-color: var(--accent) var(--background); 
   }
 }
 
-/* ---------- custom cursor ---------- */
-.has-cursor, .has-cursor * { cursor: none !important; }
-.has-cursor input, .has-cursor textarea { cursor: text !important; }
-.has-cursor select { cursor: default !important; }
 
 /* ---------- button ripple ---------- */
 .fx-ripple {
