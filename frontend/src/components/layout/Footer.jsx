@@ -51,12 +51,12 @@ export default function Footer({ info }) {
       </Container>
 
       <div className="border-t border-white/10">
-        <Container className="grid gap-10 py-12 md:grid-cols-[1.4fr_1fr_1fr_1.4fr]">
+        <Container className="grid grid-cols-1 gap-10 py-12 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <p className="font-display text-2xl text-white">{siteConfig.name}</p>
             <p className="mt-3 max-w-xs text-sm text-sand/80">{siteConfig.tagline}</p>
-            {contact.email && <p className="mt-4 text-sm">{contact.email}</p>}
-            {contact.phone && <p className="text-sm">{contact.phone}</p>}
+            {contact.email && <p className="mt-4 break-words text-sm">{contact.email}</p>}
+            {contact.phone && <p className="break-words text-sm">{contact.phone}</p>}
             <div className="mt-5 flex gap-3">
               {socials.map((s) => (
                 <motion.a

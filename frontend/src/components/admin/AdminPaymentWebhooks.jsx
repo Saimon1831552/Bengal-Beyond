@@ -1,5 +1,5 @@
 "use client";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useState } from "react";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Pagination from "@/components/ui/Pagination";
@@ -16,15 +16,17 @@ const PAGE_SIZE = 20;
 export default function AdminPaymentWebhooks() {
   const toast = useToast();
   const [status, setStatus] = useState("");
+  const [prevStatus, setPrevStatus] = useState(status);
   const [expanded, setExpanded] = useState(null);
   const [page, setPage] = useState(1);
 
   const qs = status ? `?status=${status}` : "";
   const { data, error, loading, reload } = useFetch(`/admin/payment-webhooks${qs}`);
 
-  useEffect(() => {
+  if (status !== prevStatus) {
+    setPrevStatus(status);
     setPage(1);
-  }, [status]);
+  }
 
   const rows = data || [];
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));

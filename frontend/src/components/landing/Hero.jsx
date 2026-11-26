@@ -77,7 +77,7 @@ export default function Hero({ destinations = [], tourCount = 0 }) {
       </div>
 
       {/* Main Hero Copy */}
-      <Container className="relative z-10 pb-8 pt-28 sm:pt-32 md:pb-48 md:pt-36 lg:pt-40">
+      <Container className="relative z-10 pb-20 pt-28 sm:pt-32 md:pb-44 md:pt-36 lg:pt-40">
         <motion.div style={{ y: contentY, opacity: contentOpacity }}>
           <Depth sx={sx} sy={sy} k={-10}>
             <motion.div
@@ -98,7 +98,7 @@ export default function Hero({ destinations = [], tourCount = 0 }) {
               initial={{ opacity: 0, y: 26 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.85, delay: 0.1, ease: EASE }}
-              className="mt-4 text-4xl font-semibold leading-[1.04] text-white sm:mt-5 sm:text-6xl lg:text-7xl xl:text-8xl"
+              className="mt-5 text-4xl font-semibold leading-[1.06] text-white sm:text-6xl md:text-7xl lg:text-8xl"
             >
               <span className="sr-only">Discover Bengal Beyond</span>
               <span aria-hidden="true" className="block"><KineticHeading text="Discover" /></span>
@@ -196,7 +196,7 @@ export default function Hero({ destinations = [], tourCount = 0 }) {
         initial={{ opacity: 0, y: 28 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.9, delay: 0.42, ease: EASE }}
-        className="relative z-20 mx-auto w-full max-w-5xl px-4 pb-8 md:absolute md:inset-x-4 md:bottom-0 md:translate-y-1/2 md:pb-0"
+        className="relative z-20 mx-auto -mt-12 max-w-5xl px-4 md:absolute md:inset-x-4 md:bottom-0 md:mt-0 md:translate-y-1/2 md:px-0"
       >
         <div className="hidden md:block">
           <div className="absolute inset-x-10 top-3 h-full rounded-3xl bg-white/25" />

@@ -28,7 +28,7 @@ export default function About() {
   }, []);
 
   return (
-    <section ref={root} className="overflow-x-clip pb-20 pt-16 sm:pb-24 md:pt-40 lg:pt-48">
+    <section ref={root} className="overflow-x-clip pb-20 pt-16 sm:pb-24 md:pt-48">
       <Container className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
         <div>
           <div data-slide><SectionHeader center={false} eyebrow="About us" title="Travel that goes beyond the ordinary" /></div>

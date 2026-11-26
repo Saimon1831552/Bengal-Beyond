@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 
 const Hero3D = dynamic(() => import("./Hero3D"), {
@@ -16,30 +16,27 @@ function HeroFallback() {
   );
 }
 
+const subscribeReducedMotion = (cb) => {
+  const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+};
+const getReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 export default function Hero3DLoader() {
   const hostRef = useRef(null);
   const [inView, setInView] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const reducedMotion = useSyncExternalStore(subscribeReducedMotion, getReducedMotion, () => false);
 
   useEffect(() => {
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReducedMotion(mq.matches);
-    const onChange = (e) => setReducedMotion(e.matches);
-    mq.addEventListener("change", onChange);
-
     const el = hostRef.current;
-    if (!el) return () => mq.removeEventListener("change", onChange);
-
+    if (!el) return;
     const observer = new IntersectionObserver(
       ([entry]) => setInView(entry.isIntersecting),
       { rootMargin: "150px" }
     );
     observer.observe(el);
-
-    return () => {
-      observer.disconnect();
-      mq.removeEventListener("change", onChange);
-    };
+    return () => observer.disconnect();
   }, []);
 
   return (

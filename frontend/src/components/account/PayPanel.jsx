@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import api from "@/lib/axios";
 import useCountdown from "@/hooks/useCountdown";
 import { money } from "@/lib/format";
@@ -22,20 +22,21 @@ function rotateKey(id, opt) {
 
 export default function PayPanel({ booking: b, reload }) {
   const { text, expired } = useCountdown(b.expires_at);
-  const [code, setCode] = useState("");
-  const [paymentOption, setPaymentOption] = useState("full"); // "full" | "partial"
-  const [partialAmount, setPartialAmount] = useState("");
-  const [busy, setBusy] = useState("");
-  const [msg, setMsg] = useState({ type: "", text: "" });
-
   const totalAmount = Number(b.total_amount || 0);
   const paidAmount = Number(b.paid_amount || 0);
   const remainingAmount = Math.max(0, Number((totalAmount - paidAmount).toFixed(2)));
   const minPartialAmount = Math.min(remainingAmount, Math.max(10, Number((Math.ceil(totalAmount * 30) / 100).toFixed(2))));
 
-  useEffect(() => {
+  const [code, setCode] = useState("");
+  const [paymentOption, setPaymentOption] = useState("full"); // "full" | "partial"
+  const [partialAmount, setPartialAmount] = useState(minPartialAmount.toFixed(2));
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState({ type: "", text: "" });
+  const [prevMinPartial, setPrevMinPartial] = useState(minPartialAmount);
+  if (minPartialAmount !== prevMinPartial) {
+    setPrevMinPartial(minPartialAmount);
     setPartialAmount(minPartialAmount.toFixed(2));
-  }, [minPartialAmount]);
+  }
 
   const open = ["pending_review", "awaiting_payment", "confirmed"].includes(b.booking_status);
   const payable = ["unpaid", "failed", "pending", "partially_paid"].includes(b.payment_status) && remainingAmount > 0;

@@ -52,8 +52,8 @@ export default function HolidayTours({ tours }) {
               <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
               <div className="absolute inset-0 bg-black/0 transition-colors duration-500 group-hover:bg-black/45" />
               <div className="absolute inset-x-0 bottom-0 p-5 text-white sm:p-6">
-                {t.destination && <p className="text-xs font-semibold uppercase tracking-widest text-gold">{t.destination}</p>}
-                <h3 className="mt-1 text-xl font-semibold sm:text-2xl">{t.title}</h3>
+                {t.destination && <p className="text-xs font-semibold uppercase tracking-widest text-white">{t.destination}</p>}
+                <h3 className="mt-1 text-xl text-gold font-semibold sm:text-2xl">{t.title}</h3>
                 <div className="grid grid-rows-[1fr] transition-all duration-500 md:grid-rows-[0fr] md:group-hover:grid-rows-[1fr] md:group-focus-visible:grid-rows-[1fr] pointer-coarse:grid-rows-[1fr]">
                   <div className="overflow-hidden">
                     <p className="mt-2.5 line-clamp-2 text-xs text-white/85 sm:mt-3 sm:text-sm">{t.summary}</p>

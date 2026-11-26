@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Container from "@/components/ui/Container";
@@ -13,16 +13,18 @@ const PAYMENT = ["unpaid", "pending", "paid", "failed", "partially_refunded", "r
 const sel = "rounded-xl border border-border bg-white px-3 py-2 text-sm";
 
 export default function AdminBookings() {
-  const [f, setF] = useState({ q: "", status: "", payment_status: "" });
+  const urlStatus = useSearchParams().get("status") || "";
+  const [f, setF] = useState({ q: "", status: urlStatus, payment_status: "" });
   const [applied, setApplied] = useState(f);
   const [page, setPage] = useState(1);
-  const urlStatus = useSearchParams().get("status") || "";
+  const [prevUrlStatus, setPrevUrlStatus] = useState(urlStatus);
 
-  useEffect(() => {
+  if (urlStatus !== prevUrlStatus) {
+    setPrevUrlStatus(urlStatus);
     setF((x) => ({ ...x, status: urlStatus }));
     setApplied((x) => ({ ...x, status: urlStatus }));
     setPage(1);
-  }, [urlStatus]);
+  }
 
   const qs = new URLSearchParams({ page, limit: 20 });
   for (const [k, v] of Object.entries(applied)) if (v) qs.set(k, v);

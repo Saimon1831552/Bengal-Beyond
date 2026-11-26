@@ -25,25 +25,25 @@ export default function ShortTours({ tours }) {
           {tours.slice(0, 6).map((t) => {
             const isFlipped = Boolean(flipped[t.slug]);
             return (
-              <div key={t.slug} className="group relative h-[25rem] sm:h-[26rem] [perspective:1200px]">
+              <div key={t.slug} className="group relative h-100 sm:h-104 perspective-distant">
                 <div className="absolute right-4 top-4 z-20">
                   <TourQuickActions tour={t} />
                 </div>
                 <div
-                  className={`relative h-full w-full transition-transform duration-700 [transform-style:preserve-3d] group-hover:[transform:rotateY(180deg)] group-focus-within:[transform:rotateY(180deg)] ${
-                    isFlipped ? "[transform:rotateY(180deg)]" : ""
+                  className={`relative h-full w-full transition-transform duration-700 transform-3d group-hover:transform-[rotateY(180deg)] group-focus-within:transform-[rotateY(180deg)] ${
+                    isFlipped ? "transform-[rotateY(180deg)]" : ""
                   }`}
                 >
                   {/* Front */}
-                  <div className="absolute inset-0 overflow-hidden rounded-3xl [backface-visibility:hidden]">
+                  <div className="absolute inset-0 overflow-hidden rounded-3xl backface-hidden">
                     <Image src={t.image} alt="" fill sizes="(min-width:1024px) 33vw, (min-width:640px) 50vw, 100vw" className="object-cover" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+                    <div className="absolute inset-0 bg-linear-to-t from-black/85 via-black/20 to-transparent" />
                     <div className="absolute inset-x-0 bottom-0 p-6 text-white">
                       <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-widest text-gold">
                         <span>{t.days} days</span>
                         {t.price != null && <span>From {formatPrice(t.price, t.currency)}</span>}
                       </div>
-                      <h3 className="mt-1 text-xl font-semibold sm:text-2xl">{t.title}</h3>
+                      <h3 className="mt-1 text-xl text-white font-semibold sm:text-2xl">{t.title}</h3>
                       <div className="mt-3 flex items-center justify-between">
                         <span className="hidden text-xs text-white/75 md:inline">Hover to see highlights</span>
                         <button

@@ -6,12 +6,12 @@ import Reveal from "@/components/fx/Reveal";
 import SectionHeader from "./SectionHeader";
 
 const spans = [
-  "col-span-2 row-span-2",
+  "sm:col-span-2 sm:row-span-2",
   "",
   "md:row-span-2",
   "",
   "md:col-span-2",
-  "col-span-2",
+  "sm:col-span-2",
 ];
 
 export default function Trending({ destinations }) {
@@ -25,7 +25,10 @@ export default function Trending({ destinations }) {
           title="Trending destinations"
           subtitle="From tidal mangrove creeks to high tea valleys and coral islands."
         />
-        <Reveal stagger={0.08} className="grid auto-rows-[205px] grid-cols-2 gap-4 md:grid-cols-4">
+        <Reveal
+          stagger={0.08}
+          className="grid auto-rows-[190px] grid-cols-1 gap-4 sm:auto-rows-[205px] sm:grid-cols-2 md:grid-cols-4"
+        >
           {destinations.map((d, i) => (
             <Link
               key={d.slug}

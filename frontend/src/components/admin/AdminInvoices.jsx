@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
@@ -18,6 +18,7 @@ const PAGE_SIZE = 20;
 export default function AdminInvoices() {
   const toast = useToast();
   const [statusFilter, setStatusFilter] = useState("");
+  const [prevStatusFilter, setPrevStatusFilter] = useState(statusFilter);
   const [page, setPage] = useState(1);
   const { data, error, loading, reload } = useFetch(`/admin/invoices${statusFilter ? `?status=${statusFilter}` : ""}`);
   const { data: bookingsData } = useFetch("/admin/bookings?limit=100");
@@ -27,9 +28,10 @@ export default function AdminInvoices() {
   const [busy, setBusy] = useState(false);
   const [voidTarget, setVoidTarget] = useState(null);
 
-  useEffect(() => {
+  if (statusFilter !== prevStatusFilter) {
+    setPrevStatusFilter(statusFilter);
     setPage(1);
-  }, [statusFilter]);
+  }
 
   const rows = data || [];
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));

@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { siteConfig } from "@/config/site";
@@ -59,7 +59,6 @@ export default function DashboardShell({ groups, label, topLink, children }) {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const [drawer, setDrawer] = useState(false);
-  useEffect(() => setDrawer(false), [pathname]);
 
   const crumbs = pathname.split("/").filter(Boolean).map((s) => (/^\d+$/.test(s) ? `#${s}` : s.replace(/-/g, " ")));
   const initial = (user?.fullName || user?.email || "?")[0].toUpperCase();

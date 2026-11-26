@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Container from "@/components/ui/Container";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import { useToast } from "@/components/ui/ToastProvider";
@@ -15,13 +15,18 @@ function Editor({ role, perms, onSaved }) {
   const toast = useToast();
   const isNew = role === "new";
   const [sel, setSel] = useState(new Set(isNew ? [] : role.permissions));
+  const [prevRoleKey, setPrevRoleKey] = useState(`${isNew}-${role?.id}`);
+  const roleKey = `${isNew}-${role?.id}`;
   const [meta, setMeta] = useState({ key: "", name: "", description: "" });
   const [uid, setUid] = useState("");
   const [busy, setBusy] = useState(false);
   const [removeUserTarget, setRemoveUserTarget] = useState(null);
   const users = useFetch(isNew ? null : `/admin/roles/${role.id}/users?limit=100`);
 
-  useEffect(() => { setSel(new Set(isNew ? [] : role.permissions)); }, [role, isNew]);
+  if (roleKey !== prevRoleKey) {
+    setPrevRoleKey(roleKey);
+    setSel(new Set(isNew ? [] : role.permissions));
+  }
   const locked = !isNew && role.isSystem;
 
   const groups = perms.reduce((m, p) => ((m[p.permission_key.split(".")[0]] ||= []).push(p), m), {});

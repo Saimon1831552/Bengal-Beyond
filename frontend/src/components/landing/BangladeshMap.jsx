@@ -12,7 +12,7 @@ import { formatPrice } from "@/lib/format";
 const BangladeshRealMapCanvas = dynamic(() => import("./BangladeshRealMapCanvas"), {
   ssr: false,
   loading: () => (
-    <div className="grid h-[20rem] w-full place-items-center rounded-2xl border border-white/15 bg-primary-dark/70 text-sm text-sand sm:h-[25rem] lg:h-[30rem]">
+    <div className="grid h-80 w-full place-items-center rounded-2xl border border-white/15 bg-primary-dark/70 text-sm text-sand sm:h-100 lg:h-120">
       Loading interactive map of Bangladesh…
     </div>
   ),
@@ -65,7 +65,7 @@ export default function BangladeshMap({ destinations = [], tours = [] }) {
 
             <BangladeshRealMapCanvas selectedId={selectedId} onSelect={setSelectedId} />
 
-            <div className="mt-4 flex gap-2 overflow-x-auto pb-1 sm:flex-wrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="mt-4 flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible scrollbar-none [&::-webkit-scrollbar]:hidden">
               {BANGLADESH_REGIONS.map((r) => (
                 <button
                   key={r.id}

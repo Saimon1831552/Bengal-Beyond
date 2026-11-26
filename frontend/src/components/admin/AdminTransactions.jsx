@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import Container from "@/components/ui/Container";
 import StatusBadge from "@/components/ui/StatusBadge";
@@ -16,6 +16,7 @@ export default function AdminTransactions() {
   const toast = useToast();
   const [f, setF] = useState({ type: "", status: "", q: "" });
   const [applied, setApplied] = useState(f);
+  const [prevApplied, setPrevApplied] = useState(applied);
   const [page, setPage] = useState(1);
 
   const qs = new URLSearchParams();
@@ -23,9 +24,10 @@ export default function AdminTransactions() {
   const query = qs.toString();
   const { data, error, loading, reload } = useFetch(`/admin/transactions${query ? `?${query}` : ""}`);
 
-  useEffect(() => {
+  if (applied !== prevApplied) {
+    setPrevApplied(applied);
     setPage(1);
-  }, [applied]);
+  }
 
   const rows = data || [];
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));

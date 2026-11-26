@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
@@ -30,10 +30,15 @@ export default function TourTaxonomy({ tourId }) {
   const [t, setT] = useState(null);
   const [msg, setMsg] = useState({ type: "", text: "" });
   const [busy, setBusy] = useState(false);
+  const [prevCurData, setPrevCurData] = useState(cur.data);
 
-  useEffect(() => {
-    if (cur.data) { setC(new Set(cur.data.categories.map((x) => x.id))); setT(new Set(cur.data.tags.map((x) => x.id))); }
-  }, [cur.data]);
+  if (cur.data !== prevCurData) {
+    setPrevCurData(cur.data);
+    if (cur.data) {
+      setC(new Set(cur.data.categories.map((x) => x.id)));
+      setT(new Set(cur.data.tags.map((x) => x.id)));
+    }
+  }
 
   if (!cats.data || !tags.data || !c || !t) return null;
   const save = async () => {

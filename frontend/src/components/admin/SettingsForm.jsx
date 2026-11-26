@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Container from "@/components/ui/Container";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import { useToast } from "@/components/ui/ToastProvider";
@@ -40,11 +40,15 @@ export default function SettingsForm({ title, intro, categories }) {
   const { data, error, loading, reload } = useFetch("/admin/settings");
   const hist = useFetch("/admin/settings/history?limit=8");
   const [vals, setVals] = useState({});
+  const [prevData, setPrevData] = useState(data);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingSettings, setPendingSettings] = useState(null);
 
-  useEffect(() => { if (data) setVals(Object.fromEntries(data.map((s) => [s.key, s.value]))); }, [data]);
+  if (data !== prevData) {
+    setPrevData(data);
+    if (data) setVals(Object.fromEntries(data.map((s) => [s.key, s.value])));
+  }
 
   if (loading) return <Container className="py-8"><Loading /></Container>;
   if (error) return <Container className="py-8"><ErrorBox error={error} onRetry={reload} /></Container>;

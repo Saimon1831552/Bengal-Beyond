@@ -34,7 +34,10 @@ export default function BangladeshRealMapCanvas({ selectedId, onSelect }) {
   const mapRef = useRef(null);
   const markersRef = useRef({});
   const onSelectRef = useRef(onSelect);
-  onSelectRef.current = onSelect;
+
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -50,9 +53,16 @@ export default function BangladeshRealMapCanvas({ selectedId, onSelect }) {
 
     L.control.zoom({ position: "topright" }).addTo(map);
 
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
-      subdomains: "abcd",
+const cartoKey = (process.env.NEXT_PUBLIC_CARTO_API_KEY || "").trim();
+    const tileUrl = cartoKey
+      ? `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoKey)}`
+      : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+
+    L.tileLayer(tileUrl, {
+      attribution: cartoKey
+        ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
+        : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      subdomains: cartoKey ? "abcd" : "abc",
       maxZoom: 19,
     }).addTo(map);
 
@@ -119,12 +129,12 @@ export default function BangladeshRealMapCanvas({ selectedId, onSelect }) {
   };
 
   return (
-    <div className="relative h-[20rem] w-full overflow-hidden rounded-2xl border border-white/15 sm:h-[25rem] lg:h-[30rem]">
+    <div className="relative h-80 w-full overflow-hidden rounded-2xl border border-white/15 sm:h-104 lg:h-120">
       <div ref={containerRef} className="z-0 h-full w-full" />
       <button
         type="button"
         onClick={resetOverview}
-        className="absolute bottom-3 left-3 z-[400] rounded-full bg-primary-dark/90 px-3.5 py-1.5 text-xs font-semibold text-white shadow-lg backdrop-blur-md transition hover:bg-primary-dark"
+        className="absolute bottom-3 left-3 z-400 rounded-full bg-primary-dark/90 px-3.5 py-1.5 text-xs font-semibold text-white shadow-lg backdrop-blur-md transition hover:bg-primary-dark"
       >
         ⌖ Full Bangladesh View
       </button>

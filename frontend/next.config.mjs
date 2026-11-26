@@ -1,13 +1,28 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  
   reactStrictMode: true,
+  reactCompiler: true,
   poweredByHeader: false,
   compress: true,
+  turbopack: {
+    root: __dirname,
+  },
   images: {
     formats: ["image/avif", "image/webp"],
+    minimumCacheTTL: 60 * 60 * 24 * 7,
     remotePatterns: [
       { protocol: "https", hostname: "images.unsplash.com" },
+      { protocol: "http", hostname: "localhost" },
     ],
+  },
+  experimental: {
+    optimizePackageImports: ["framer-motion", "gsap", "leaflet"],
   },
   async headers() {
     return [
