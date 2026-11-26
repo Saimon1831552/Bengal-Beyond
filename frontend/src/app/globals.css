@@ -197,6 +197,82 @@
   .skip-link:focus { left: 0; }
 }
 
+/* Add to frontend/src/app/globals.css */
+.blog-prose h2 {
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  font-family: var(--font-display), serif;
+  font-size: 1.65rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #123d32;
+}
+
+.blog-prose h3 {
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  font-family: var(--font-display), serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #123d32;
+}
+
+.blog-prose p {
+  margin-bottom: 1.15rem;
+  line-height: 1.8;
+}
+
+.blog-prose strong,
+.blog-prose b {
+  font-weight: 700;
+  color: #082b21;
+}
+
+.blog-prose em,
+.blog-prose i {
+  font-style: italic;
+}
+
+.blog-prose mark {
+  background-color: rgba(232, 169, 60, 0.32);
+  color: #082b21;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.35rem;
+  font-weight: 600;
+}
+
+.blog-prose ul {
+  margin: 1rem 0 1.25rem 1.4rem;
+  list-style-type: disc;
+}
+
+.blog-prose ol {
+  margin: 1rem 0 1.25rem 1.4rem;
+  list-style-type: decimal;
+}
+
+.blog-prose li {
+  margin-bottom: 0.45rem;
+  line-height: 1.7;
+}
+
+.blog-prose blockquote {
+  margin: 1.5rem 0;
+  border-left: 3.5px solid #e8a93c;
+  background-color: rgba(18, 61, 50, 0.05);
+  padding: 0.9rem 1.2rem;
+  border-radius: 0 1rem 1rem 0;
+  font-style: italic;
+  color: #123d32;
+}
+
+.blog-prose a {
+  color: #123d32;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 /* section background helpers */
 .bg-brand { background: var(--grad-brand); }
 .bg-sea { background: var(--grad-sea); }

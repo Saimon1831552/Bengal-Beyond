@@ -4,6 +4,7 @@
  */
 
 const API = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api").replace(/\/+$/, "");
+const ORIGIN = API.replace(/\/api\/?$/, "");
 const REVALIDATE = 3600;
 const TOUR_REVALIDATE = 300;
 
@@ -126,12 +127,21 @@ function mapPost(r) {
     slug: r.slug,
     title: r.title,
     excerpt: r.excerpt || "",
-    author: "Bengal Beyond Editorial", // API has no author name yet
+    author: r.author_name || "Bengal Beyond Editorial",
     publishedAt: published,
     updatedAt: published,
     body: r.content || r.body || "",
-    image: r.featured_image_url || undefined,
+    image: resolveAssetUrl(r.featured_image_url),
+    imageAlt: r.featured_image_alt || r.title || "",
+    seoTitle: r.seo_title || r.title || "",
+    seoDescription: r.seo_description || r.excerpt || "",
   };
+}
+
+function resolveAssetUrl(url) {
+  if (!url) return undefined;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${ORIGIN}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
 /* ---------- destinations ---------- */
@@ -180,11 +190,12 @@ export async function getTour(slug) {
 /* ---------- blog ---------- */
 
 export async function getPosts() {
-  const data = await api("/blog?limit=100");
-  return (data?.items ?? []).map(mapPost);
+  const data = await api("/blog?limit=100", 60);
+  const rows = Array.isArray(data) ? data : (data?.items ?? []);
+  return rows.map(mapPost);
 }
 
 export async function getPost(slug) {
-  const r = await api(`/blog/${encodeURIComponent(slug)}`);
+  const r = await api(`/blog/${encodeURIComponent(slug)}`, 60);
   return r ? mapPost(r) : null;
 }

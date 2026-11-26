@@ -17,7 +17,7 @@ const nextConfig = {
     formats: ["image/avif", "image/webp"],
     minimumCacheTTL: 60 * 60 * 24 * 7,
     remotePatterns: [
-      { protocol: "https", hostname: "images.unsplash.com" },
+      { protocol: "https", hostname: "**" },
       { protocol: "http", hostname: "localhost" },
     ],
   },

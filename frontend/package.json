@@ -17,6 +17,7 @@
     "next": "16.4.5",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "xss": "^1.0.17",
     "zustand": "^5.1.0"
   },
   "devDependencies": {

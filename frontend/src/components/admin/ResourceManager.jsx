@@ -5,6 +5,7 @@ import ConfirmModal from "@/components/ui/ConfirmModal";
 import Pagination from "@/components/ui/Pagination";
 import { useToast } from "@/components/ui/ToastProvider";
 import { Loading, ErrorBox, Empty } from "@/components/account/State";
+import RichContentEditor from "./RichContentEditor";
 import useFetch from "@/hooks/useFetch";
 import api from "@/lib/axios";
 import { errMsg } from "@/lib/errors";
@@ -15,6 +16,18 @@ const initial = (cfg) => Object.fromEntries(cfg.fields.map((f) => [f.name, f.typ
 
 function Input({ f, value, onChange, disabled }) {
   const c = { id: `f-${f.name}`, name: f.name, required: f.required, disabled, placeholder: f.placeholder };
+  if (f.type === "richtext") {
+    return (
+      <div className="mt-1">
+        <RichContentEditor
+          {...c}
+          value={value}
+          onChange={onChange}
+          rows={f.rows || 14}
+        />
+      </div>
+    );
+  }
   if (f.type === "textarea") return <textarea {...c} rows={f.rows || 4} maxLength={f.maxLength} className={inp} value={value} onChange={(e) => onChange(e.target.value)} />;
   if (f.type === "select") return (
     <select {...c} className={inp} value={value} onChange={(e) => onChange(e.target.value)}>
@@ -69,6 +82,11 @@ function Form({ cfg, mode, row, onDone, onCancel }) {
               <label className="flex items-center gap-2 pt-6 text-sm font-medium">
                 <Input f={f} value={values[f.name]} onChange={(v) => set(f, v)} />{f.label}
               </label>
+            ) : f.type === "richtext" ? (
+              <div>
+                <span className="block text-sm font-medium">{f.label}{f.required && <span className="text-terracotta"> *</span>}</span>
+                <Input f={f} value={values[f.name]} onChange={(v) => set(f, v)} disabled={mode === "edit" && f.readOnlyOnEdit} />
+              </div>
             ) : (
               <label className="block text-sm font-medium">{f.label}{f.required && <span className="text-terracotta"> *</span>}
                 <Input f={f} value={values[f.name]} onChange={(v) => set(f, v)} disabled={mode === "edit" && f.readOnlyOnEdit} />
@@ -96,7 +114,7 @@ export default function ResourceManager({ cfg }) {
   const [page, setPage] = useState(1);
   const [view, setView] = useState(null);
   const [busy, setBusy] = useState("");
-  const [confirmState, setConfirmState] = useState(null); // { title, description, confirmLabel, tone, run }
+  const [confirmState, setConfirmState] = useState(null);
 
   const qs = new URLSearchParams({ page, limit: pageSize, ...(cfg.query || {}) });
   for (const [k, v] of Object.entries(applied)) if (v) qs.set(k, v);

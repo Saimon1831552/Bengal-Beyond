@@ -1,66 +1,135 @@
+import Image from "next/image";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import Container from "@/components/ui/Container";
+import { sanitizeRichHtml } from "@/lib/sanitizeRichHtml";
 import { buildMetadata } from "@/lib/seo";
-import { articleJsonLd } from "@/lib/jsonld";
+import { siteConfig } from "@/config/site";
 import { getPost, getPosts } from "@/services/content";
-import Image from "@/components/ui/RemoteImage";
-import JsonLd from "@/components/seo/JsonLd";
-import Breadcrumbs from "@/components/seo/Breadcrumbs";
-import { formatDate } from "@/lib/format";
 
-export const revalidate = 300;
+export const revalidate = 60;
+
+const DEFAULT_COVER =
+  "https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1600&q=80";
 
 export async function generateStaticParams() {
-  try {
-    return (await getPosts()).map((p) => ({ slug: p.slug }));
-  } catch {
-    return [];
-  }
+  const posts = await getPosts();
+  return posts.filter((p) => p.slug).map((p) => ({ slug: p.slug }));
 }
 
 export async function generateMetadata({ params }) {
   const { slug } = await params;
-  const p = await getPost(slug);
-  if (!p) return {};
+  const post = await getPost(slug);
+  if (!post) {
+    return buildMetadata({
+      title: `Travel Journal — ${siteConfig.name}`,
+      path: `/blog/${slug}`,
+    });
+  }
   return buildMetadata({
-    title: p.title,
-    description: p.excerpt,
-    path: `/blog/${p.slug}`,
-    image: p.image,
-    type: "article",
-    publishedTime: p.publishedAt,
-    modifiedTime: p.updatedAt || p.publishedAt,
+    title: `${post.title} — ${siteConfig.name} Journal`,
+    description: post.excerpt || "",
+    path: `/blog/${slug}`,
   });
 }
 
-export default async function PostPage({ params }) {
+export default async function BlogDetailPage({ params }) {
   const { slug } = await params;
-  const p = await getPost(slug);
-  if (!p) notFound();
+  const [post, allPosts] = await Promise.all([getPost(slug), getPosts()]);
+
+  if (!post) notFound();
+
+  const related = allPosts.filter((p) => p.slug !== slug).slice(0, 3);
+  const cover = post.image || DEFAULT_COVER;
+  const body = String(post.body || post.excerpt || "");
 
   return (
-    <main>
-      <Container className="pt-6">
-        <Breadcrumbs items={[{ name: "Home", path: "/" }, { name: "Blog", path: "/blog" }, { name: p.title, path: `/blog/${p.slug}` }]} />
-      </Container>
-
-      <Container as="article" className="max-w-3xl py-8">
-        <h1 className="font-display text-3xl text-primary md:text-5xl">{p.title}</h1>
-        <p className="mt-3 text-sm text-muted">
-          By {p.author || "Bengal Beyond"} · <time dateTime={p.publishedAt}>{formatDate(p.publishedAt)}</time>
-        </p>
-        {p.image && (
-          <div className="relative my-6 aspect-[16/9] overflow-hidden rounded-3xl">
-            <Image src={p.image} alt={p.title} fill priority className="object-cover" />
+    <main className="bg-background pb-20 text-foreground">
+      <header className="bg-primary-dark py-14 text-white sm:py-20">
+        <Container className="max-w-4xl">
+          <Link
+            href="/blog"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-gold hover:underline"
+          >
+            ← Back to Journal
+          </Link>
+          <h1 className="mt-4 font-display text-gold text-3xl font-semibold leading-tight sm:text-5xl">
+            {post.title}
+          </h1>
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-sand/85">
+            <span>{post.author}</span>
+            {post.publishedAt && (
+              <span>
+                ·{" "}
+                {new Date(post.publishedAt).toLocaleDateString("en-US", {
+                  month: "long",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </span>
+            )}
           </div>
+        </Container>
+      </header>
+
+      <Container className="max-w-4xl">
+        <div className="relative -mt-8 aspect-[16/9] overflow-hidden rounded-3xl border border-border bg-white shadow-xl">
+          <Image
+            src={cover}
+            alt={post.title}
+            fill
+            priority
+            sizes="(max-width: 896px) 100vw, 896px"
+            className="object-cover"
+          />
+        </div>
+
+        <article
+          className="blog-prose mx-auto mt-10 max-w-3xl text-base text-foreground"
+          dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(body) }}
+        />
+
+        {related.length > 0 && (
+          <section className="mx-auto mt-14 max-w-3xl border-t border-border pt-10">
+            <h2 className="font-display text-xl font-semibold text-primary">
+              More from the Bengal Beyond Journal
+            </h2>
+            <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
+              {related.map((item) => (
+                <Link
+                  key={item.id || item.slug}
+                  href={`/blog/${item.slug}`}
+                  className="group rounded-2xl border border-border bg-white p-4 transition hover:border-primary/40 hover:shadow-md"
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-accent">
+                    {item.publishedAt || "Journal"}
+                  </p>
+                  <p className="mt-1.5 line-clamp-2 font-display text-sm font-semibold text-primary group-hover:text-accent">
+                    {item.title}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          </section>
         )}
-        <div className="mt-6 space-y-5 text-base leading-relaxed text-foreground/85">
-          {p.body.split(/\n{2,}/).filter(Boolean).map((para, i) => (
-            <p key={i} className="whitespace-pre-line">{para}</p>
-          ))}
+
+        <div className="mx-auto mt-14 max-w-3xl rounded-3xl border border-border bg-white p-6 sm:flex sm:items-center sm:justify-between sm:p-8">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">
+              Experience This Route
+            </p>
+            <h2 className="mt-1 font-display text-xl font-semibold text-primary">
+              Want to explore this region with a local guide?
+            </h2>
+          </div>
+          <Link
+            href="/tours"
+            className="btn-gold mt-4 inline-block shrink-0 rounded-full px-6 py-3 text-xs font-semibold sm:mt-0"
+          >
+            View Departures
+          </Link>
         </div>
       </Container>
-      <JsonLd data={articleJsonLd(p)} />
     </main>
   );
 }
