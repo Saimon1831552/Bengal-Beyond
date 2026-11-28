@@ -1,6 +1,6 @@
 const service = require("./admin-departure.service");
 const { sendSuccess } = require("../../utils/response");
-const asyncHandler = require("../../utils/asyncHandler");
+const asyncHandler = require("../../utils/asynchandler");
 
 module.exports = {
   list: asyncHandler(async (req, res) => {
