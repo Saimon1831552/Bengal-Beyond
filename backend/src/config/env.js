@@ -76,7 +76,9 @@ for (const key of ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "MAIL_FROM"]) {
 
 if (env.IS_PRODUCTION) {
   for (const key of ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "MAIL_FROM"]) {
+    console.log('Loaded env keys:', Object.keys(process.env).filter(k => k.startsWith('SMTP') || k === 'NODE_ENV'));
     if (typeof env[key] !== "string" || env[key].trim().length === 0) {
+
       throw new Error(`${key} must be configured in production.`);
     }
   }
